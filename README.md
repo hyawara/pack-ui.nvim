@@ -2,7 +2,7 @@
 
 一个面向 Neovim 0.12+ 的小型 `vim.pack` 管理器 UI。
 
-使用原生 Neovim 悬浮窗口，首次渲染通过 `vim.pack.get(nil, { info = false })` 快速读取包数据。Git 更新计数异步采集并在刷新或包变更前一直缓存。
+使用 `nui.nvim` 管理弹窗，使用 `plenary.nvim` 处理 Git 异步任务和 lock file 读取。首次渲染通过 `vim.pack.get(nil, { info = false })` 快速读取包数据，Git 更新计数异步采集并在刷新或包变更前一直缓存。
 
 本仓库刻意以"小型可读插件"的方式组织代码。目标不仅是能跑，还要展示一个 Neovim 插件如何把命令入口、数据加载、UI 状态、渲染和副作用分开。
 
@@ -10,14 +10,20 @@
 
 - Neovim 0.12+
 - Git
+- [nui.nvim](https://github.com/MunifTanjim/nui.nvim)
+- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
 
 ## 安装
 
 ```lua
 vim.pack.add({
+    'https://github.com/nvim-lua/plenary.nvim',
+    'https://github.com/MunifTanjim/nui.nvim',
     'https://github.com/hyawara/pack-ui.nvim',
 })
 ```
+
+依赖要放在 `pack-ui.nvim` 前面。PackUI 默认它们已经安装好，因此业务模块可以直接 `require('nui.popup')`、`require('plenary.job')` 和 `require('plenary.path')`。这也是本项目刻意保留的教学点：插件业务代码不需要自己维护弹窗生命周期、job 封装或跨平台路径读取，常见能力交给成熟库。
 
 ## 使用
 
@@ -65,10 +71,11 @@ make test
 - `plugin/packui.lua` 只定义 `:PackUI` 命令。
 - `lua/packui/init.lua` 连接 source、actions 和 UI。
 - `lua/packui/source/` 是数据层。它从 `vim.pack` 或 lock file 读取数据，把原始数据建模为稳定形状，并缓存异步更新计数。
+- `lua/packui/git.lua` 用 `plenary.job` 包装 Git 异步任务，让调用方只关心“要什么数据”。
 - `lua/packui/ui/state.lua` 拥有 UI 状态，按插件名（而非屏幕行号）管理选中。
 - `lua/packui/ui/render.lua` 是纯渲染层。它把状态转为文本行、高亮和插件行导航目标。
-- `lua/packui/ui/controller.lua` 处理所有副作用：键位映射、刷新、更新回调、窗口生命周期和异步 git 历史加载。
-- `lua/packui/win.lua` 只包含底层的悬浮窗口辅助函数。
+- `lua/packui/ui/controller.lua` 处理所有副作用：键位映射、刷新、更新回调、窗口生命周期和异步 Git 历史加载。
+- `lua/packui/win.lua` 只包含基于 `nui.popup` 的窗口辅助函数。
 
 最重要的教学点：渲染行为不再决定逻辑。行为先更新 state，渲染层再从 state 派生出屏幕内容。
 
@@ -79,9 +86,11 @@ make test
 1. `plugin/packui.lua`：命令入口。
 2. `lua/packui/init.lua`：依赖注入。
 3. `lua/packui/source/init.lua` 和 `lua/packui/source/model.lua`：外部/编辑器数据如何变成插件项模型。
-4. `lua/packui/ui/state.lua`：UI 记住了什么。
-5. `lua/packui/ui/render.lua`：状态如何变成文本和高亮。
-6. `lua/packui/ui/controller.lua`：副作用存在哪里。
+4. `lua/packui/git.lua`：如何用 `plenary.job` 简化异步 Git 命令。
+5. `lua/packui/ui/state.lua`：UI 记住了什么。
+6. `lua/packui/ui/render.lua`：状态如何变成文本和高亮。
+7. `lua/packui/win.lua`：如何用 `nui.popup` 简化弹窗。
+8. `lua/packui/ui/controller.lua`：副作用存在哪里。
 
 如果你已经熟悉 MVC 或 presenter 模式的 UI 代码，大致对应关系如下：
 
@@ -94,17 +103,18 @@ make test
 
 ```text
 plugin/packui.lua               命令入口
+lua/packui/git.lua              基于 plenary.job 的 Git 异步辅助
 lua/packui/init.lua             模块连接
 lua/packui/actions.lua          更新/删除/打开动作
 lua/packui/ui.lua               UI 门面
 lua/packui/ui/controller.lua    有状态的 UI 编排
 lua/packui/ui/render.lua        纯渲染与详情文本
 lua/packui/ui/state.lua         UI 状态与选择规则
-lua/packui/win.lua              窗口和缓冲区辅助
+lua/packui/win.lua              基于 nui.popup 的窗口辅助
 lua/packui/utils.lua            通知与 URL 打开
 lua/packui/source/init.lua      包列表 API
 lua/packui/source/model.lua     包数据规范化
 lua/packui/source/cache.lua     异步更新计数缓存
-tests/packui_native_ui_spec.lua 交互场景测试
+tests/packui_ui_spec.lua        交互场景测试
 DESIGN.md                       架构维护说明
 ```
