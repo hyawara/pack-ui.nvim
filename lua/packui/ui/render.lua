@@ -1,5 +1,7 @@
 local M = {}
 
+M.LOADING_LINE = 'Loading...'
+
 local NAME_WIDTH = 36
 local STATUS_WIDTH = 14
 local KEY_HINT_LINES = {
@@ -109,7 +111,7 @@ function M.build_detail_lines(item, is_updated)
         lines[#lines + 1] = 'Repo: ' .. (item.repo or '-')
         lines[#lines + 1] = ''
         lines[#lines + 1] = '🕘 Recent commits:'
-        lines[#lines + 1] = 'Loading...'
+        lines[#lines + 1] = M.LOADING_LINE
     else
         local update_status = item.has_update and '⬆️ available' or tostring(item.update_count or '-')
         lines[#lines + 1] = 'Updates: ' .. update_status
@@ -210,6 +212,7 @@ function M.build_snapshot(state)
         end
     end
 
+    -- 屏幕行号由本次快照决定，持久选择状态只保存插件名。
     snapshot.selected_line = M.compute_selected_line(state.selected_name, snapshot.selectable_lines, snapshot.line_to_item)
     return snapshot
 end

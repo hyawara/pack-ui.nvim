@@ -1,3 +1,5 @@
+local Popup = require('nui.popup')
+
 local M = {}
 
 local HIGHLIGHTS = {
@@ -26,25 +28,6 @@ function M.setup_highlights()
     end
 end
 
-function M.clear_winhighlight_option(win)
-    if not win or not vim.api.nvim_win_is_valid(win) then
-        return
-    end
-    pcall(vim.api.nvim_set_option_value, 'winhighlight', '', { win = win })
-end
-
-function M.create_scratch_buf(filetype)
-    local buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_set_option_value('buftype', 'nofile', { buf = buf })
-    vim.api.nvim_set_option_value('bufhidden', 'wipe', { buf = buf })
-    vim.api.nvim_set_option_value('swapfile', false, { buf = buf })
-    vim.api.nvim_set_option_value('modifiable', false, { buf = buf })
-    if filetype then
-        vim.api.nvim_set_option_value('filetype', filetype, { buf = buf })
-    end
-    return buf
-end
-
 function M.set_buf_lines(buf, lines)
     if not buf or not vim.api.nvim_buf_is_valid(buf) then
         return
@@ -67,8 +50,8 @@ end
 function M.calc_layout(content_width)
     local columns = math.max(vim.o.columns, 40)
     local lines = math.max(vim.o.lines - vim.o.cmdheight, 12)
-    local desired = math.max(content_width or 60, 60)
-    local width = clamp(desired, 60, columns - 8)
+    local desired = math.max(content_width or 84, 84)
+    local width = clamp(desired, 84, columns - 4)
     local height = clamp(math.floor(lines * 0.82), 14, lines - 2)
     local row = math.max(0, math.floor((lines - height) / 2) - 1)
     local col = math.max(3, math.floor((columns - width) / 4))
@@ -82,44 +65,57 @@ function M.resize_win_to_content(win, content_width, min_width, max_extra)
     if not win or not vim.api.nvim_win_is_valid(win) then
         return
     end
-    local min_w = min_width or 60
-    local extra = max_extra or 10
+    local min_w = min_width or 84
+    local extra = max_extra or 18
     local editor_width = math.max(vim.o.columns, 40)
     local target = math.max(content_width + extra, min_w)
-    target = math.min(target, editor_width - 2)
+    target = math.min(target, editor_width - 4)
     local ok, current = pcall(vim.api.nvim_win_get_width, win)
     if ok and current ~= target then
         pcall(vim.api.nvim_win_set_width, win, target)
     end
 end
 
-function M.create_float(opts)
-    local win = vim.api.nvim_open_win(opts.buf, opts.enter == true, {
-        relative = 'editor',
-        row = opts.row,
-        col = opts.col,
-        width = opts.width,
-        height = opts.height,
-        border = 'none',
-        style = 'minimal',
+function M.create_popup(opts)
+    local popup = Popup({
+        enter = opts.enter == true,
         focusable = opts.focusable ~= false,
+        relative = 'editor',
+        position = {
+            row = opts.row,
+            col = opts.col,
+        },
+        size = {
+            width = opts.width,
+            height = opts.height,
+        },
+        buf_options = {
+            buftype = 'nofile',
+            bufhidden = 'wipe',
+            swapfile = false,
+            modifiable = false,
+        },
+        win_options = {
+            winhighlight = 'Normal:PackUINormal,FloatBorder:PackUIBorder,FloatTitle:PackUITitle',
+            wrap = false,
+            cursorline = false,
+            scrolloff = 0,
+        },
         zindex = opts.zindex or 50,
     })
 
-    vim.api.nvim_set_option_value('winhighlight', 'Normal:PackUINormal', { win = win })
-    vim.api.nvim_set_option_value('wrap', false, { win = win })
-    vim.api.nvim_set_option_value('cursorline', false, { win = win })
-    vim.api.nvim_set_option_value('scrolloff', 0, { win = win })
-    return win
+    popup:mount()
+    return popup
 end
 
 function M.close_all(wins)
-    if wins.main_win and vim.api.nvim_win_is_valid(wins.main_win) then
-        vim.api.nvim_win_close(wins.main_win, true)
+    if not wins or not wins.main_popup then
+        return
     end
-    if wins.main_buf and vim.api.nvim_buf_is_valid(wins.main_buf) then
-        vim.api.nvim_buf_delete(wins.main_buf, { force = true })
-    end
+
+    pcall(function()
+        wins.main_popup:unmount()
+    end)
 end
 
 function M.is_open(wins)

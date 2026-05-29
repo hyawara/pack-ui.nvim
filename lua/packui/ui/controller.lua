@@ -1,11 +1,12 @@
 local render = require('packui.ui.render')
+local git = require('packui.git')
 local state_model = require('packui.ui.state')
 local ui_win = require('packui.win')
 local utils = require('packui.utils')
 
 local M = {}
 
-local NS = vim.api.nvim_create_namespace('packui.native')
+local NS = vim.api.nvim_create_namespace('packui.ui')
 
 local function redraw_now()
     pcall(vim.cmd.redraw)
@@ -49,12 +50,36 @@ local function restore_cursor(state, snapshot)
     vim.api.nvim_win_set_cursor(state.wins.main_win, { state.selected_line, 0 })
 
     local win_height = vim.api.nvim_win_get_height(state.wins.main_win)
+    local pinned = snapshot.pinned_line_count or 0
     local visible_top = math.max(0, state.selected_line - win_height + 1)
-    if visible_top < snapshot.pinned_line_count then
+
+    -- 选中项贴近底部时，避免滚动把顶部按键提示和状态行顶出视野。
+    if visible_top < pinned then
+        local target_top = math.max(1, state.selected_line - win_height + 1)
+        if target_top < pinned then
+            target_top = 1
+        end
         pcall(vim.api.nvim_win_call, state.wins.main_win, function()
-            vim.cmd('normal! zt')
+            vim.cmd('normal! ' .. target_top .. 'Gzt')
         end)
         vim.api.nvim_win_set_cursor(state.wins.main_win, { state.selected_line, 0 })
+    end
+end
+
+local function start_update(state)
+    state.updating = true
+    M.render(state)
+    redraw_now()
+end
+
+local function fail_update(state)
+    if state.closed then
+        return
+    end
+
+    state.updating = false
+    if ui_win.is_open(state.wins) then
+        M.render(state)
     end
 end
 
@@ -83,7 +108,7 @@ end
 local function commit_lines_without_loading(lines)
     local new_lines = {}
     for _, line in ipairs(lines or {}) do
-        if line ~= 'Loading...' then
+        if line ~= render.LOADING_LINE then
             new_lines[#new_lines + 1] = line
         end
     end
@@ -106,7 +131,6 @@ local function finalize_commit_preview(state, item, commits)
     end
 
     cache.lines = lines
-    cache.loading = false
 
     if ui_win.is_open(state.wins) then
         M.render(state)
@@ -123,37 +147,32 @@ local function fetch_commits(item, state)
         return
     end
 
-    if vim.fn.isdirectory(item.path) ~= 1 or vim.fn.isdirectory(item.path .. '/.git') ~= 1 then
+    if not git.is_repo(item.path) then
         no_commits_available()
         return
     end
 
-    vim.system({ 'git', 'log', '--oneline', '-5' }, {
-        cwd = item.path,
-        text = true,
-    }, function(res)
-        vim.schedule(function()
-            if state.closed or not ui_win.is_open(state.wins) then
-                return
-            end
+    git.recent_commits(item.path, function(res)
+        if state.closed or not ui_win.is_open(state.wins) then
+            return
+        end
 
-            if not state.detail_cache[item.name] then
-                return
-            end
+        if not state.detail_cache[item.name] then
+            return
+        end
 
-            if res and res.code == 0 and res.stdout then
-                local commits = {}
-                for _, commit in ipairs(vim.split(res.stdout:gsub('%s+$', ''), '\n', { plain = true })) do
-                    if commit ~= '' then
-                        commits[#commits + 1] = commit
-                    end
+        if res and res.code == 0 and res.stdout then
+            local commits = {}
+            for _, commit in ipairs(vim.split(res.stdout:gsub('%s+$', ''), '\n', { plain = true })) do
+                if commit ~= '' then
+                    commits[#commits + 1] = commit
                 end
-                finalize_commit_preview(state, item, commits)
-                return
             end
+            finalize_commit_preview(state, item, commits)
+            return
+        end
 
-            no_commits_available()
-        end)
+        no_commits_available()
     end)
 end
 
@@ -164,7 +183,6 @@ local function ensure_detail_cache(state, item, is_updated)
 
     state.detail_cache[item.name] = {
         lines = render.build_detail_lines(item, is_updated),
-        loading = is_updated,
     }
 
     if is_updated then
@@ -189,6 +207,8 @@ local function toggle_detail(state)
 end
 
 local function refresh(state, refresh_opts)
+    refresh_opts = refresh_opts or {}
+
     if state.refreshing then
         return
     end
@@ -198,6 +218,9 @@ local function refresh(state, refresh_opts)
 
     state.refreshing = true
     load_items(state, preserve_snapshot(state))
+    if refresh_opts.after_load then
+        refresh_opts.after_load()
+    end
     M.render(state)
 
     local has_async_jobs = state.source.prime_update_counts(state.items, function()
@@ -207,7 +230,7 @@ local function refresh(state, refresh_opts)
         if ui_win.is_open(state.wins) then
             M.render(state)
         end
-    end, { force = refresh_opts and refresh_opts.force_counts == true })
+    end, { force = refresh_opts.force_counts == true })
 
     if not has_async_jobs then
         state.refreshing = false
@@ -239,6 +262,22 @@ local function expand_updated_items(state, names)
             ensure_detail_cache(state, item, true)
         end
     end
+end
+
+local function finish_update(state, updated_names, opts)
+    if state.closed or not ui_win.is_open(state.wins) then
+        return
+    end
+
+    state.updating = false
+    state_model.set_updated_names(state, updated_names, opts.reset_updated)
+    opts.invalidate_counts()
+    refresh(state, {
+        force_counts = true,
+        after_load = function()
+            expand_updated_items(state, updated_names)
+        end,
+    })
 end
 
 local function navigate(state, delta)
@@ -273,35 +312,18 @@ local function map_keys(state)
         refresh(state, { force_counts = true })
     end, 'Refresh list')
     map('U', function()
-        state.updating = true
-        M.render(state)
-        redraw_now()
+        start_update(state)
 
         vim.schedule(function()
             state.actions.update_all({
                 on_done = function(updated_names)
-                    if state.closed or not ui_win.is_open(state.wins) then
-                        return
-                    end
-
-                    state.updating = false
-                    state_model.set_updated_names(state, updated_names, true)
-                    state.source.invalidate_all_update_counts()
-                    refresh(state, { force_counts = true })
-                    expand_updated_items(state, updated_names)
-                    if ui_win.is_open(state.wins) then
-                        M.render(state)
-                    end
+                    finish_update(state, updated_names, {
+                        reset_updated = true,
+                        invalidate_counts = state.source.invalidate_all_update_counts,
+                    })
                 end,
                 on_error = function()
-                    if state.closed then
-                        return
-                    end
-
-                    state.updating = false
-                    if ui_win.is_open(state.wins) then
-                        M.render(state)
-                    end
+                    fail_update(state)
                 end,
             })
         end)
@@ -312,35 +334,20 @@ local function map_keys(state)
             return
         end
 
-        state.updating = true
-        M.render(state)
-        redraw_now()
+        start_update(state)
 
         vim.schedule(function()
             state.actions.update_one(item, {
                 on_done = function(updated_names)
-                    if state.closed or not ui_win.is_open(state.wins) then
-                        return
-                    end
-
-                    state.updating = false
-                    state_model.set_updated_names(state, updated_names, false)
-                    state.source.invalidate_update_count(item.path)
-                    refresh(state, { force_counts = true })
-                    expand_updated_items(state, updated_names)
-                    if ui_win.is_open(state.wins) then
-                        M.render(state)
-                    end
+                    finish_update(state, updated_names, {
+                        reset_updated = false,
+                        invalidate_counts = function()
+                            state.source.invalidate_update_count(item.path)
+                        end,
+                    })
                 end,
                 on_error = function()
-                    if state.closed then
-                        return
-                    end
-
-                    state.updating = false
-                    if ui_win.is_open(state.wins) then
-                        M.render(state)
-                    end
+                    fail_update(state)
                 end,
             })
         end)
@@ -365,29 +372,31 @@ end
 local function create_windows()
     ui_win.setup_highlights()
     local layout = ui_win.calc_layout()
-    local wins = {
-        main_buf = ui_win.create_scratch_buf(),
-    }
+    local wins = {}
 
-    wins.main_win = ui_win.create_float(vim.tbl_extend('force', layout.main, {
-        buf = wins.main_buf,
+    local popup = ui_win.create_popup(vim.tbl_extend('force', layout.main, {
         enter = true,
     }))
+
+    wins.main_popup = popup
+    wins.main_buf = popup.bufnr
+    wins.main_win = popup.winid
     vim.api.nvim_set_option_value('scrolloff', 3, { win = wins.main_win })
     return wins
 end
 
 function M.open(opts)
+    local wins = create_windows()
     local state = state_model.create({
         source = opts.source,
         actions = opts.actions,
-        wins = create_windows(),
+        wins = wins,
     })
 
     state.close = function()
         close(state)
     end
-    state.augroup = vim.api.nvim_create_augroup('PackUINative' .. tostring(state.wins.main_win), { clear = true })
+    state.augroup = vim.api.nvim_create_augroup('PackUI' .. tostring(state.wins.main_win), { clear = true })
 
     vim.api.nvim_create_autocmd('WinClosed', {
         group = state.augroup,

@@ -1,3 +1,101 @@
+-- 测试只验证 PackUI 自己的行为，nui/plenary 用最小替身隔离外部插件安装状态。
+package.preload['nui.popup'] = function()
+    local Popup = {}
+    Popup.__index = Popup
+
+    setmetatable(Popup, {
+        __call = function(_, opts)
+            return setmetatable({ opts = opts or {} }, Popup)
+        end,
+    })
+
+    function Popup:mount()
+        self.bufnr = vim.api.nvim_create_buf(false, true)
+
+        for name, value in pairs(self.opts.buf_options or {}) do
+            vim.api.nvim_set_option_value(name, value, { buf = self.bufnr })
+        end
+
+        local border = self.opts.border and self.opts.border.style or self.opts.border
+        if border == 'none' then
+            border = nil
+        end
+
+        self.winid = vim.api.nvim_open_win(self.bufnr, self.opts.enter == true, {
+            relative = self.opts.relative or 'editor',
+            row = self.opts.position and self.opts.position.row or 1,
+            col = self.opts.position and self.opts.position.col or 1,
+            width = self.opts.size and self.opts.size.width or 60,
+            height = self.opts.size and self.opts.size.height or 20,
+            border = border,
+            style = 'minimal',
+            focusable = self.opts.focusable ~= false,
+            zindex = self.opts.zindex,
+        })
+
+        for name, value in pairs(self.opts.win_options or {}) do
+            vim.api.nvim_set_option_value(name, value, { win = self.winid })
+        end
+    end
+
+    function Popup:unmount()
+        if self.winid and vim.api.nvim_win_is_valid(self.winid) then
+            vim.api.nvim_win_close(self.winid, true)
+        end
+        if self.bufnr and vim.api.nvim_buf_is_valid(self.bufnr) then
+            vim.api.nvim_buf_delete(self.bufnr, { force = true })
+        end
+    end
+
+    return Popup
+end
+
+package.preload['plenary.job'] = function()
+    local Job = {}
+    Job.__index = Job
+
+    function Job:new(opts)
+        return setmetatable({ opts = opts or {} }, self)
+    end
+
+    function Job:start()
+        if self.opts.on_exit then
+            self.opts.on_exit({
+                result = function()
+                    return {}
+                end,
+            }, 1)
+        end
+        return self
+    end
+
+    return Job
+end
+
+package.preload['plenary.path'] = function()
+    local Path = {}
+    Path.__index = Path
+
+    function Path:new(...)
+        local parts = { ... }
+        return setmetatable({ filename = table.concat(parts, '/') }, self)
+    end
+
+    function Path:exists()
+        return vim.fn.filereadable(self.filename) == 1 or vim.fn.isdirectory(self.filename) == 1
+    end
+
+    function Path:is_dir()
+        return vim.fn.isdirectory(self.filename) == 1
+    end
+
+    function Path:read()
+        return table.concat(vim.fn.readfile(self.filename), '\n')
+    end
+
+    return Path
+end
+
 local function assert_truthy(value, message)
     if not value then
         error(message, 2)
@@ -114,7 +212,7 @@ local tests = {}
 tests.opens_single_buffer_ui = function()
     local ui = require('packui.ui')
     local state = ui.open({ source = make_source({ make_plugin('alpha.nvim') }), actions = make_actions() })
-    assert_truthy(type(state) == 'table', 'ui.open returns a native UI state table')
+    assert_truthy(type(state) == 'table', 'ui.open returns a UI state table')
 
     -- Single main window only
     assert_truthy(vim.api.nvim_win_is_valid(state.wins.main_win), 'main window is valid')
@@ -176,7 +274,7 @@ end
 tests.handles_empty_plugin_list = function()
     local ui = require('packui.ui')
     local state = ui.open({ source = make_source({}), actions = make_actions() })
-    assert_truthy(type(state) == 'table', 'empty source still opens native UI')
+    assert_truthy(type(state) == 'table', 'empty source still opens UI')
 
     local buf_text = text(state.wins.main_buf)
     assert_contains(buf_text, 'Update (u)', 'update hint renders for empty list')
@@ -367,8 +465,8 @@ end
 for name, test in pairs(tests) do
     local ok, err = pcall(test)
     if not ok then
-        error(string.format('tests/packui_native_ui_spec.lua::%s failed\n%s', name, err), 0)
+        error(string.format('tests/packui_ui_spec.lua::%s failed\n%s', name, err), 0)
     end
 end
 
-print('packui_native_ui_spec: all tests passed')
+print('packui_ui_spec: all tests passed')
