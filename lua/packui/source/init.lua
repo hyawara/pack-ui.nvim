@@ -1,6 +1,5 @@
 local cache = require('packui.source.cache')
-local normalize = require('packui.source.normalize')
-local preview = require('packui.source.preview')
+local model = require('packui.source.model')
 
 local M = {}
 
@@ -36,8 +35,7 @@ local function list_from_pack_get()
 
     local items = {}
     for _, item in ipairs(data) do
-        local normalized = normalize.normalize_pack_item(item, cache.update_count_cached(item.path))
-        items[#items + 1] = preview.build(normalized)
+        items[#items + 1] = model.from_pack_item(item, cache.update_count_cached(item.path))
     end
 
     return sort_by_name(items)
@@ -52,7 +50,7 @@ local function list_from_lock_file()
     local items = {}
     for name, spec in pairs(decoded.plugins) do
         if type(name) == 'string' and type(spec) == 'table' then
-            items[#items + 1] = preview.build(normalize.normalize_lock_item(name, spec))
+            items[#items + 1] = model.from_lock_item(name, spec)
         end
     end
 

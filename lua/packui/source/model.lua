@@ -43,7 +43,7 @@ function M.github_url_from_repo(repo)
     return 'https://github.com/' .. repo
 end
 
-function M.normalize_pack_item(item, update_count)
+function M.from_pack_item(item, update_count)
     local spec = item.spec or {}
     local name = spec.name or vim.fn.fnamemodify(item.path or '', ':t')
     local src = spec.src or spec.url or ''
@@ -66,7 +66,7 @@ function M.normalize_pack_item(item, update_count)
     }
 end
 
-function M.normalize_lock_item(name, spec)
+function M.from_lock_item(name, spec)
     local src = spec.src or spec.url or ''
     local repo = M.repo_from_url(src)
 
