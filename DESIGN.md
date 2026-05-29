@@ -17,7 +17,7 @@
 
 1. `:PackUI` 调用 `require('packui').open()`。
 2. `lua/packui/init.lua` 把 `source`、`actions`、`ui` 三个依赖一起注入。
-3. `ui/controller.lua` 创建悬浮窗口和初始状态。
+3. `ui/controller.lua` 通过 `win.lua` 创建 `nui.popup` 弹窗和初始状态。
 4. `source/init.lua` 从 `vim.pack.get()` 返回插件列表；如果数据库为空则回退到 lock file。
 5. `ui/state.lua` 存取插件列表，以插件名作为选中标识。
 6. `ui/render.lua` 把状态转换为缓冲区文本和高亮元数据（纯函数，不修改 state）。
@@ -35,11 +35,15 @@
 
 组合根。如果你以后想替换数据源或动作实现，从这个文件改起。
 
+### `lua/packui/git.lua`
+
+Git 异步门面。它用 `plenary.job` 运行 Git 命令，并把结果整理成 `{ code, stdout }`，控制器和缓存层不用直接关心 job 对象。
+
 ### `lua/packui/source/*`
 
 数据层只回答一个问题："插件项长什么样？"
 
-- `init.lua` 决定数据从哪来。
+- `init.lua` 决定数据从哪来，并用 `plenary.path` 读取 lock file。
 - `model.lua` 把 `vim.pack` 或 lock file 的原始数据映射为稳定的 item 结构。
 - `cache.lua` 管理异步的更新计数缓存。
 
@@ -78,7 +82,11 @@
 - Git 提交历史加载
 - 窗口生命周期
 
-任何代码只要碰了 `vim.system`、`vim.schedule` 或按键绑定，就应该在这个文件里。
+任何代码只要碰了 `vim.schedule`、按键绑定或 UI 生命周期，就应该在这个文件里。Git 进程本身放在 `git.lua`，窗口创建细节放在 `win.lua`。
+
+### `lua/packui/win.lua`
+
+窗口辅助层。它用 `nui.popup` 处理弹窗创建、挂载和卸载，控制器只保存 `main_popup`、`main_buf` 和 `main_win` 三个运行时引用。
 
 ## 维护规则
 
