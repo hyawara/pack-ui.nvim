@@ -123,7 +123,7 @@ tests.opens_single_buffer_ui = function()
     local buf_text = text(state.wins.main_buf)
 
     -- Key help at top
-    assert_contains(buf_text, 'Open repo (g)', 'open repo hint present')
+    assert_contains(buf_text, 'Open repo (o)', 'open repo hint present')
     assert_contains(buf_text, 'Update (u)', 'update one hint present')
     assert_contains(buf_text, 'Update all (U)', 'update all hint present')
     assert_contains(buf_text, 'Refresh (r)', 'refresh hint present')
@@ -225,7 +225,7 @@ tests.binds_actions_and_cleans_up = function()
         seen[keymap.lhs] = keymap.desc or true
     end
 
-    for _, key in ipairs({ 'g', 'U', 'u', 'x', 'r', '<CR>', 'q' }) do
+    for _, key in ipairs({ 'o', 'U', 'u', 'x', 'r', '<CR>', 'q' }) do
         assert_truthy(seen[key], 'main buffer binds key ' .. key)
     end
 
@@ -235,15 +235,15 @@ tests.binds_actions_and_cleans_up = function()
     assert_equals(false, vim.api.nvim_win_is_valid(main_win), 'close invalidates main window')
 end
 
-tests.g_key_opens_selected_plugin_repository = function()
+tests.o_key_opens_selected_plugin_repository = function()
     local ui = require('packui.ui')
     local actions = make_actions()
     local state = ui.open({ source = make_source({ make_plugin('alpha.nvim') }), actions = actions })
 
     vim.api.nvim_set_current_win(state.wins.main_win)
-    vim.api.nvim_feedkeys('g', 'x', false)
+    vim.api.nvim_feedkeys('o', 'x', false)
 
-    assert_equals(1, actions.calls.open_github, 'g invokes open_github for the selected plugin')
+    assert_equals(1, actions.calls.open_github, 'o invokes open_github for the selected plugin')
 
     close_state(state)
 end

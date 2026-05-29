@@ -263,7 +263,7 @@ local function map_keys(state)
     map('k', function()
         navigate(state, -1)
     end, 'Previous plugin')
-    map('g', function()
+    map('o', function()
         local item = current_plugin(state)
         if item then
             state.actions.open_github(item)

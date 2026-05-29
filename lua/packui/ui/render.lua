@@ -3,7 +3,7 @@ local M = {}
 local NAME_WIDTH = 36
 local STATUS_WIDTH = 14
 local KEY_HINT_LINES = {
-    ' Open repo (g)  Update (u)  Update all (U)  Refresh (r)  Details (<CR>)  Delete (x)  Close (q) ',
+    ' Open repo (o)  Update (u)  Update all (U)  Refresh (r)  Details (<CR>)  Delete (x)  Close (q) ',
 }
 
 local function status_label(item)
