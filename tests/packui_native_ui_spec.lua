@@ -33,21 +33,6 @@ local function make_plugin(name)
         github_url = 'https://github.com/owner/' .. name,
         src = 'https://github.com/owner/' .. name,
         path = vim.fn.getcwd(),
-        preview = {
-            text = table.concat({
-                '# PackUI: ' .. name,
-                '',
-                '## Keys',
-                '- `g`: open GitHub repository',
-                '- `U`: update all plugins',
-                '',
-                '## Details',
-                '- **Commit**: abcdef12',
-                '- **Repo**: owner/' .. name,
-            }, '\n'),
-            ft = 'markdown',
-            loc = false,
-        },
     }
 end
 
@@ -65,7 +50,12 @@ local function make_source(plugins)
 end
 
 local function make_actions()
+    local calls = {
+        open_github = 0,
+    }
+
     return {
+        calls = calls,
         update_all = function(opts)
             if opts and opts.on_done then
                 opts.on_done({})
@@ -81,7 +71,9 @@ local function make_actions()
                 on_done()
             end
         end,
-        open_github = function() end,
+        open_github = function()
+            calls.open_github = calls.open_github + 1
+        end,
     }
 end
 
@@ -123,12 +115,13 @@ tests.opens_single_buffer_ui = function()
     local buf_text = text(state.wins.main_buf)
 
     -- Key help at top
+    assert_contains(buf_text, 'Open repo (g)', 'open repo hint present')
     assert_contains(buf_text, 'Update (u)', 'update one hint present')
     assert_contains(buf_text, 'Update all (U)', 'update all hint present')
-    assert_contains(buf_text, 'Refresh (R)', 'refresh hint present')
+    assert_contains(buf_text, 'Refresh (r)', 'refresh hint present')
     assert_contains(buf_text, 'Details (<CR>)', 'details hint present')
-    assert_contains(buf_text, 'Delete (X)', 'delete hint present')
-    assert_contains(buf_text, 'Close (Q)', 'close hint present')
+    assert_contains(buf_text, 'Delete (x)', 'delete hint present')
+    assert_contains(buf_text, 'Close (q)', 'close hint present')
 
     -- Column headers present
     assert_contains(buf_text, 'NAME', 'has NAME column')
@@ -224,7 +217,7 @@ tests.binds_actions_and_cleans_up = function()
         seen[keymap.lhs] = keymap.desc or true
     end
 
-    for _, key in ipairs({ 'U', 'u', 'x', 'r', '<CR>', 'q' }) do
+    for _, key in ipairs({ 'g', 'U', 'u', 'x', 'r', '<CR>', 'q' }) do
         assert_truthy(seen[key], 'main buffer binds key ' .. key)
     end
 
@@ -232,6 +225,66 @@ tests.binds_actions_and_cleans_up = function()
     local main_win = state.wins.main_win
     close_state(state)
     assert_equals(false, vim.api.nvim_win_is_valid(main_win), 'close invalidates main window')
+end
+
+tests.g_key_opens_selected_plugin_repository = function()
+    local ui = require('packui.ui')
+    local actions = make_actions()
+    local state = ui.open({ source = make_source({ make_plugin('alpha.nvim') }), actions = actions })
+
+    vim.api.nvim_set_current_win(state.wins.main_win)
+    vim.api.nvim_feedkeys('g', 'x', false)
+
+    assert_equals(1, actions.calls.open_github, 'g invokes open_github for the selected plugin')
+
+    close_state(state)
+end
+
+tests.key_hints_match_real_keymaps = function()
+    local ui = require('packui.ui')
+    local state = ui.open({ source = make_source({ make_plugin('alpha.nvim') }), actions = make_actions() })
+
+    local buf_text = text(state.wins.main_buf)
+    assert_contains(buf_text, 'Refresh (r)', 'refresh hint matches mapped key')
+    assert_contains(buf_text, 'Delete (x)', 'delete hint matches mapped key')
+    assert_contains(buf_text, 'Close (q)', 'close hint matches mapped key')
+
+    close_state(state)
+end
+
+tests.navigation_only_visits_plugin_rows = function()
+    local ui = require('packui.ui')
+    local plugins = { make_plugin('alpha.nvim'), make_plugin('beta.nvim') }
+    local state = ui.open({ source = make_source(plugins), actions = make_actions() })
+
+    local first_item = state.line_to_item[state.selected_line]
+    assert_truthy(first_item and first_item.name == 'alpha.nvim', 'selection starts on first plugin row')
+
+    vim.api.nvim_set_current_win(state.wins.main_win)
+    vim.api.nvim_feedkeys('k', 'x', false)
+
+    local still_first_item = state.line_to_item[state.selected_line]
+    assert_truthy(still_first_item and still_first_item.name == 'alpha.nvim', 'moving up does not land on hint or header rows')
+
+    vim.api.nvim_feedkeys('j', 'x', false)
+    local second_item = state.line_to_item[state.selected_line]
+    assert_truthy(second_item and second_item.name == 'beta.nvim', 'moving down lands on next plugin row')
+
+    close_state(state)
+end
+
+tests.refresh_preserves_expanded_plugin_details = function()
+    local ui = require('packui.ui')
+    local state = ui.open({ source = make_source({ make_plugin('alpha.nvim') }), actions = make_actions() })
+
+    vim.api.nvim_set_current_win(state.wins.main_win)
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<CR>', true, false, true), 'x', false)
+    assert_contains(text(state.wins.main_buf), 'Status: ✅ active', 'details expand before refresh')
+
+    vim.api.nvim_feedkeys('r', 'x', false)
+    assert_contains(text(state.wins.main_buf), 'Status: ✅ active', 'refresh keeps expanded details for same plugin')
+
+    close_state(state)
 end
 
 for name, test in pairs(tests) do

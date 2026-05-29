@@ -136,7 +136,7 @@ function M.delete_one(item, on_done)
 end
 
 function M.open_github(item)
-    if not item or item.header then
+    if not item or not item.name then
         notify('PackUI: select a plugin first', vim.log.levels.WARN)
         return
     end
