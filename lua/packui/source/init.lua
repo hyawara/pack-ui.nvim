@@ -1,15 +1,22 @@
 local cache = require('packui.source.cache')
 local model = require('packui.source.model')
+local Path = require('plenary.path')
 
 local M = {}
 
-local function safe_decode_json(path)
-    local ok, lines = pcall(vim.fn.readfile, path)
-    if not ok or type(lines) ~= 'table' then
+local function safe_decode_json(file)
+    if not file:exists() then
         return nil
     end
 
-    local decoded_ok, decoded = pcall(vim.json.decode, table.concat(lines, '\n'))
+    local read_ok, content = pcall(function()
+        return file:read()
+    end)
+    if not read_ok or type(content) ~= 'string' then
+        return nil
+    end
+
+    local decoded_ok, decoded = pcall(vim.json.decode, content)
     if not decoded_ok or type(decoded) ~= 'table' then
         return nil
     end
@@ -42,7 +49,7 @@ local function list_from_pack_get()
 end
 
 local function list_from_lock_file()
-    local decoded = safe_decode_json(vim.fn.stdpath('config') .. '/nvim-pack-lock.json')
+    local decoded = safe_decode_json(Path:new(vim.fn.stdpath('config'), 'nvim-pack-lock.json'))
     if not decoded or type(decoded.plugins) ~= 'table' then
         return {}
     end

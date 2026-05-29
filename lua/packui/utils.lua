@@ -1,4 +1,5 @@
 local M = {}
+local Job = require('plenary.job')
 
 function M.notify(msg, level)
     vim.notify(msg, level or vim.log.levels.INFO)
@@ -24,7 +25,11 @@ function M.open_url(url)
         command = { 'xdg-open', url }
     end
 
-    vim.fn.jobstart(command, { detach = true })
+    local job = Job:new({
+        command = command[1],
+        args = vim.list_slice(command, 2),
+    })
+    job:start()
     return true
 end
 
