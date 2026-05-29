@@ -78,7 +78,9 @@ end
 local function apply_row_highlights(line_number, item, parts)
     local name_end = #parts.raw_name
     local status_start = #parts.name
-    local status_end = status_start + #parts.raw_status
+    -- Highlights use byte offsets. We intentionally highlight only the status text,
+    -- not the padding spaces that align the VERSION column.
+    local status_text_end = status_start + #parts.raw_status
     local version_start = #parts.name + #parts.status
     local version_end = version_start + #(item.version or '-')
 
@@ -89,7 +91,7 @@ local function apply_row_highlights(line_number, item, parts)
             {
                 group = item.active and 'PackUIRowActive' or 'PackUIRowInactive',
                 col_start = status_start,
-                col_end = status_end,
+                col_end = status_text_end,
             },
             { group = 'PackUIRowVersion', col_start = version_start, col_end = version_end },
         },

@@ -64,7 +64,7 @@ make test
 
 - `plugin/packui.lua` only defines the `:PackUI` command.
 - `lua/packui/init.lua` wires source, actions, and UI together.
-- `lua/packui/source/` is the data layer. It reads `vim.pack` or the lock file, normalizes items, and caches async update counts.
+- `lua/packui/source/` is the data layer. It reads `vim.pack` or the lock file, models items into a stable shape, and caches async update counts.
 - `lua/packui/ui/state.lua` owns UI state and selection by plugin name, not by screen line.
 - `lua/packui/ui/render.lua` is the pure render layer. It turns state into lines, highlights, and plugin-row navigation targets.
 - `lua/packui/ui/controller.lua` handles side effects: keymaps, refresh, update callbacks, window lifecycle, and async git history loading.
