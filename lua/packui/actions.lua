@@ -17,7 +17,7 @@ end
 
 local function capture_revs()
     local revs = {}
-    local ok, data = pcall(vim.pack.get, nil, { info = false })
+    local ok, data = pcall(vim.pack.get, nil, { info = true })
     if ok and type(data) == 'table' then
         for _, item in ipairs(data) do
             if type(item.path) == 'string' and item.path ~= '' then
@@ -30,7 +30,7 @@ end
 
 local function diff_updated(before_revs)
     local updated = {}
-    local ok, data = pcall(vim.pack.get, nil, { info = false })
+    local ok, data = pcall(vim.pack.get, nil, { info = true })
     if ok and type(data) == 'table' then
         for _, item in ipairs(data) do
             if type(item.path) == 'string' and item.path ~= '' then
