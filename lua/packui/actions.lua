@@ -11,22 +11,66 @@ local function ensure_pack_api()
     return true
 end
 
-function M.update_all(on_done)
+local function clear_native_messages()
+    pcall(vim.api.nvim_echo, {}, false, {})
+end
+
+local function capture_revs()
+    local revs = {}
+    local ok, data = pcall(vim.pack.get, nil, { info = false })
+    if ok and type(data) == 'table' then
+        for _, item in ipairs(data) do
+            if type(item.path) == 'string' and item.path ~= '' then
+                revs[item.path] = item.rev
+            end
+        end
+    end
+    return revs
+end
+
+local function diff_updated(before_revs)
+    local updated = {}
+    local ok, data = pcall(vim.pack.get, nil, { info = false })
+    if ok and type(data) == 'table' then
+        for _, item in ipairs(data) do
+            if type(item.path) == 'string' and item.path ~= '' then
+                local old = before_revs[item.path]
+                if old and old ~= item.rev then
+                    local name = (item.spec and item.spec.name) or vim.fn.fnamemodify(item.path, ':t')
+                    updated[#updated + 1] = name
+                end
+            end
+        end
+    end
+    return updated
+end
+
+function M.update_all(opts)
+    opts = opts or {}
     if not ensure_pack_api() then
         return
     end
 
+    local before_revs = capture_revs()
+
     local ok, err = pcall(vim.pack.update, nil, { force = true })
+    clear_native_messages()
+
     if not ok then
         notify('PackUI: update all failed: ' .. tostring(err), vim.log.levels.ERROR)
+        if opts.on_error then
+            opts.on_error(err)
+        end
+        return
     end
 
-    if on_done then
-        on_done()
+    local updated = diff_updated(before_revs)
+    if opts.on_done then
+        opts.on_done(updated)
     end
 end
 
-function M.update_one(item, on_done)
+function M.update_one(item, opts)
     if not item or not item.name then
         notify('PackUI: no plugin selected', vim.log.levels.WARN)
         return
@@ -36,13 +80,24 @@ function M.update_one(item, on_done)
         return
     end
 
+    opts = opts or {}
+
+    local before_revs = capture_revs()
+
     local ok, err = pcall(vim.pack.update, { item.name }, { force = true })
+    clear_native_messages()
+
     if not ok then
         notify('PackUI: update failed for ' .. item.name .. ': ' .. tostring(err), vim.log.levels.ERROR)
+        if opts.on_error then
+            opts.on_error(err)
+        end
+        return
     end
 
-    if on_done then
-        on_done()
+    local updated = diff_updated(before_revs)
+    if opts.on_done then
+        opts.on_done(updated)
     end
 end
 

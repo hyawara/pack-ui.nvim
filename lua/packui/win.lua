@@ -4,8 +4,18 @@ local HIGHLIGHTS = {
     PackUINormal = { link = 'NormalFloat' },
     PackUIBorder = { link = 'FloatBorder' },
     PackUITitle = { link = 'Title' },
-    PackUIFooter = { link = 'Comment' },
-    PackUIHeader = { link = 'Title' },
+    PackUIKeyHint = { link = 'Comment' },
+    PackUIUpdating = { link = 'DiagnosticInfo' },
+    PackUIUpdatedHeader = { link = 'DiffAdd' },
+    PackUIAllPluginsHeader = { link = 'Title' },
+    PackUIColumnHeader = { link = 'Type' },
+    PackUIRowName = { link = 'Identifier' },
+    PackUIRowActive = { link = 'String' },
+    PackUIRowInactive = { link = 'Comment' },
+    PackUIRowVersion = { link = 'Number' },
+    PackUIDetail = { link = 'Comment' },
+    PackUIUpdatedRow = { link = 'DiffAdd' },
+    PackUIUpdatedDetail = { link = 'DiffChange' },
     PackUISelected = { link = 'Visual' },
 }
 
@@ -14,6 +24,13 @@ function M.setup_highlights()
         opts.default = true
         vim.api.nvim_set_hl(0, group, opts)
     end
+end
+
+function M.clear_winhighlight_option(win)
+    if not win or not vim.api.nvim_win_is_valid(win) then
+        return
+    end
+    pcall(vim.api.nvim_set_option_value, 'winhighlight', '', { win = win })
 end
 
 function M.create_scratch_buf(filetype)
@@ -47,23 +64,33 @@ local function clamp(value, min, max)
     return value
 end
 
-function M.calc_layout()
+function M.calc_layout(content_width)
     local columns = math.max(vim.o.columns, 40)
     local lines = math.max(vim.o.lines - vim.o.cmdheight, 12)
-    local width = clamp(math.floor(columns * 0.88), 60, columns - 4)
-    local height = clamp(math.floor(lines * 0.78), 14, lines - 4)
-    local row = math.max(1, math.floor((lines - height) / 2))
-    local col = math.max(2, math.floor((columns - width) / 2))
-    local footer_height = 1
-    local panel_height = height - footer_height
-    local list_width = clamp(math.floor(width * 0.48), 34, width - 30)
-    local detail_width = width - list_width
+    local desired = math.max(content_width or 60, 60)
+    local width = clamp(desired, 60, columns - 8)
+    local height = clamp(math.floor(lines * 0.82), 14, lines - 2)
+    local row = math.max(0, math.floor((lines - height) / 2) - 1)
+    local col = math.max(3, math.floor((columns - width) / 4))
 
     return {
-        list = { row = row, col = col, width = list_width, height = panel_height },
-        detail = { row = row, col = col + list_width, width = detail_width, height = panel_height },
-        footer = { row = row + panel_height, col = col, width = width, height = footer_height },
+        main = { row = row, col = col, width = width, height = height },
     }
+end
+
+function M.resize_win_to_content(win, content_width, min_width, max_extra)
+    if not win or not vim.api.nvim_win_is_valid(win) then
+        return
+    end
+    local min_w = min_width or 60
+    local extra = max_extra or 10
+    local editor_width = math.max(vim.o.columns, 40)
+    local target = math.max(content_width + extra, min_w)
+    target = math.min(target, editor_width - 2)
+    local ok, current = pcall(vim.api.nvim_win_get_width, win)
+    if ok and current ~= target then
+        pcall(vim.api.nvim_win_set_width, win, target)
+    end
 end
 
 function M.create_float(opts)
@@ -73,37 +100,30 @@ function M.create_float(opts)
         col = opts.col,
         width = opts.width,
         height = opts.height,
-        border = opts.border or 'rounded',
-        title = opts.title,
-        title_pos = opts.title_pos or 'center',
+        border = 'none',
         style = 'minimal',
         focusable = opts.focusable ~= false,
         zindex = opts.zindex or 50,
     })
 
-    vim.api.nvim_set_option_value('winhighlight', 'Normal:PackUINormal,FloatBorder:PackUIBorder,FloatTitle:PackUITitle', { win = win })
+    vim.api.nvim_set_option_value('winhighlight', 'Normal:PackUINormal', { win = win })
     vim.api.nvim_set_option_value('wrap', false, { win = win })
-    vim.api.nvim_set_option_value('cursorline', opts.cursorline == true, { win = win })
+    vim.api.nvim_set_option_value('cursorline', false, { win = win })
+    vim.api.nvim_set_option_value('scrolloff', 0, { win = win })
     return win
 end
 
 function M.close_all(wins)
-    for _, key in ipairs({ 'list_win', 'detail_win', 'footer_win' }) do
-        local win = wins[key]
-        if win and vim.api.nvim_win_is_valid(win) then
-            vim.api.nvim_win_close(win, true)
-        end
+    if wins.main_win and vim.api.nvim_win_is_valid(wins.main_win) then
+        vim.api.nvim_win_close(wins.main_win, true)
     end
-    for _, key in ipairs({ 'list_buf', 'detail_buf', 'footer_buf' }) do
-        local buf = wins[key]
-        if buf and vim.api.nvim_buf_is_valid(buf) then
-            vim.api.nvim_buf_delete(buf, { force = true })
-        end
+    if wins.main_buf and vim.api.nvim_buf_is_valid(wins.main_buf) then
+        vim.api.nvim_buf_delete(wins.main_buf, { force = true })
     end
 end
 
 function M.is_open(wins)
-    return wins and wins.list_win and vim.api.nvim_win_is_valid(wins.list_win)
+    return wins and wins.main_win and vim.api.nvim_win_is_valid(wins.main_win)
 end
 
 return M
