@@ -76,8 +76,7 @@ end
 local function apply_row_highlights(line_number, item, parts)
     local name_end = #parts.raw_name
     local status_start = #parts.name
-    -- Highlights use byte offsets. We intentionally highlight only the status text,
-    -- not the padding spaces that align the VERSION column.
+    -- 高亮使用字节偏移。刻意只高亮状态文本，不包含用于对齐 VERSION 列的填补空格。
     local status_text_end = status_start + #parts.raw_status
     local version_start = #parts.name + #parts.status
     local version_end = version_start + #(item.version or '-')

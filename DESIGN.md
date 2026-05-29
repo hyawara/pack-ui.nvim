@@ -1,103 +1,99 @@
-# Design Notes
+# 架构说明
 
-## Goals
+## 设计目标
 
-This plugin is intentionally small, but it still separates responsibilities so that maintenance does not depend on remembering every Neovim API call at once.
+这个插件刻意保持小巧，但依然分离了职责，让维护工作不依赖一次性记住所有 Neovim API。
 
-The design goals are:
+核心原则：
 
-1. Keep the command entry trivial.
-2. Keep plugin data plain.
-3. Keep rendering derivable from state.
-4. Keep side effects in one place.
+1. 命令入口保持简单。
+2. 插件数据保持纯粹。
+3. 渲染从状态派生，不做突变。
+4. 副作用集中在控制器层。
 
-## Data Flow
+## 数据流
 
-The runtime flow is:
+完整的运行时流程：
 
-1. `:PackUI` calls `require('packui').open()`.
-2. `lua/packui/init.lua` passes `source`, `actions`, and `ui` dependencies together.
-3. `ui/controller.lua` creates the window and initial state.
-4. `source/init.lua` returns plugin items from `vim.pack.get()` or the lock file fallback.
-5. `ui/state.lua` stores those items and tracks the selected plugin by name.
-6. `ui/render.lua` converts state into buffer lines and highlight metadata (pure, no state mutation).
-7. `ui/controller.lua` syncs the render output back into state via `sync_render_state`, then applies highlights and cursor to the window.
+1. `:PackUI` 调用 `require('packui').open()`。
+2. `lua/packui/init.lua` 把 `source`、`actions`、`ui` 三个依赖一起注入。
+3. `ui/controller.lua` 创建悬浮窗口和初始状态。
+4. `source/init.lua` 从 `vim.pack.get()` 返回插件列表；如果数据库为空则回退到 lock file。
+5. `ui/state.lua` 存取插件列表，以插件名作为选中标识。
+6. `ui/render.lua` 把状态转换为缓冲区文本和高亮元数据（纯函数，不修改 state）。
+7. `ui/controller.lua` 通过 `sync_render_state` 把渲染结果同步回状态，再应用高亮和光标。
 
-The important rule is: selection is stored as `selected_name`, not `selected_line`.
+核心规则：选择状态始终存储在 `selected_name` 字段里，而不是 `selected_line`。刷新时屏幕行号可能变化，但插件名不会，所以用名字比用行号安全得多。
 
-That makes refreshes safer because line numbers can change, but plugin identity does not.
-
-## Module Boundaries
+## 模块边界
 
 ### `plugin/packui.lua`
 
-Only defines the user command. No state, no logic.
+只定义用户命令。零状态、零逻辑。
 
 ### `lua/packui/init.lua`
 
-Acts as the composition root. If you want to replace a data source or action implementation later, start here.
+组合根。如果你以后想替换数据源或动作实现，从这个文件改起。
 
 ### `lua/packui/source/*`
 
-The source layer answers one question: "what is a plugin item?"
+数据层只回答一个问题："插件项长什么样？"
 
-- `init.lua` chooses where data comes from.
-- `model.lua` converts raw `vim.pack` or lock-file data into a stable item shape.
-- `cache.lua` owns async update-count caching.
+- `init.lua` 决定数据从哪来。
+- `model.lua` 把 `vim.pack` 或 lock file 的原始数据映射为稳定的 item 结构。
+- `cache.lua` 管理异步的更新计数缓存。
 
-Nothing in this layer should know about windows, keymaps, or cursor positions.
+数据层不懂窗口、键位、光标位置——一个字都不该知道。
 
 ### `lua/packui/ui/state.lua`
 
-This file is the easiest place for a beginner to start reading UI behavior.
+这是新手最应该先读的 UI 文件。它回答了：
 
-It answers:
-
-- What fields exist in state?
-- How is the current plugin selected?
-- How are updated items rebuilt?
-- Which expanded detail blocks should survive refresh?
+- state 里有哪些字段？
+- 当前选中哪个插件？
+- 更新过的插件列表如何重建？
+- 刷新后哪些展开的详情需要保留？
 
 ### `lua/packui/ui/render.lua`
 
-This is the pure rendering layer. It has zero imports from `state.lua` and performs no state mutations.
+纯渲染层。不引用 `state.lua`，不做状态修改。
 
-Given a state table, it returns:
+传入 state 表，返回：
 
-- lines
-- row highlight metadata
-- line-to-plugin mapping
-- plugin navigation order
-- selected line number (computed via `compute_selected_line`, which does NOT modify state)
+- 缓冲区文本行
+- 行级高亮元数据
+- 每行的 item 映射
+- 插件导航顺序
+- 当前选中的行号（由 `compute_selected_line` 纯函数计算，不改 state）
 
-When behavior looks wrong on screen, inspect this file first.
+当屏幕上效果不对时，从本文件查起。
 
 ### `lua/packui/ui/controller.lua`
 
-This file owns side effects only:
+只拥有副作用：
 
-- keymaps
-- refresh orchestration
-- update callbacks
-- git history loading
-- window lifecycle
+- 键位绑定
+- 刷新编排
+- 更新回调
+- Git 提交历史加载
+- 窗口生命周期
 
-If something touches `vim.system`, `vim.schedule`, or key bindings, it belongs here.
+任何代码只要碰了 `vim.system`、`vim.schedule` 或按键绑定，就应该在这个文件里。
 
-## Maintenance Rules
+## 维护规则
 
-If you want to keep the plugin teachable, follow these rules:
+想让这个插件保持"可教学"，请遵守以下规则：
 
-1. Do not put new business logic directly into `plugin/packui.lua`.
-2. Do not put Neovim side effects into `source/*`.
-3. Do not store render-only text on plugin items.
-4. Prefer adding a pure helper in `ui/render.lua` before adding another state mutation.
-5. If a bug is about selection or refresh, fix the state model before patching the renderer.
+1. 不要把业务逻辑直接放进 `plugin/packui.lua`。
+2. 不要把 Neovim 副作用放进 `source/*`。
+3. 不要把渲染专用文本存到 item 对象上。
+4. 在增加新的状态突变之前，优先考虑在 `ui/render.lua` 里加一个纯函数。
+5. 如果 bug 是关于选择或刷新，先修状态模型，再改渲染器。
 
-## Suggested Next Improvements
+## 未来改进方向
 
-These are intentionally left as future work, not bundled into the refactor:
+以下项目是刻意预留的——它们在重构范围之外，但方向已经明确：
 
-1. Add unit tests for `source/model.lua` URL normalization.
-2. Add unit tests for `ui/render.lua` snapshot output.
-3. Add a second integration test file dedicated to update/refresh race scenarios.
+1. 为 `source/model.lua` 的 URL 正则添加单元测试。
+2. 为 `ui/render.lua` 的快照输出添加单元测试。
+3. 新建一个集成测试文件，专门覆盖更新/刷新竞态场景。

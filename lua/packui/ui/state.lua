@@ -91,22 +91,6 @@ function M.set_updated_names(state, names, reset)
     M.rebuild_updated_items(state)
 end
 
-function M.ensure_selected_line(state, selectable_lines, line_to_item)
-    if state.selected_name then
-        for _, line in ipairs(selectable_lines) do
-            local item = line_to_item[line]
-            if item and item.name == state.selected_name then
-                return line
-            end
-        end
-    end
-
-    local first_line = selectable_lines[1]
-    local first_item = first_line and line_to_item[first_line] or nil
-    state.selected_name = first_item and first_item.name or nil
-    return first_line
-end
-
 function M.sync_render_state(state, snapshot)
     state.selectable_lines = snapshot.selectable_lines
     state.plugin_order = snapshot.plugin_order
