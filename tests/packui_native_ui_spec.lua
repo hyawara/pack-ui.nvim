@@ -52,21 +52,29 @@ end
 local function make_actions()
     local calls = {
         open_github = 0,
+        update_all = 0,
+        update_one = 0,
+        delete_one = 0,
+        last_deleted = nil,
     }
 
     return {
         calls = calls,
         update_all = function(opts)
+            calls.update_all = calls.update_all + 1
             if opts and opts.on_done then
                 opts.on_done({})
             end
         end,
         update_one = function(_, opts)
+            calls.update_one = calls.update_one + 1
             if opts and opts.on_done then
                 opts.on_done({})
             end
         end,
-        delete_one = function(_, on_done)
+        delete_one = function(item, on_done)
+            calls.delete_one = calls.delete_one + 1
+            calls.last_deleted = item and item.name or nil
             if on_done then
                 on_done()
             end
@@ -283,6 +291,75 @@ tests.refresh_preserves_expanded_plugin_details = function()
 
     vim.api.nvim_feedkeys('r', 'x', false)
     assert_contains(text(state.wins.main_buf), 'Status: ✅ active', 'refresh keeps expanded details for same plugin')
+
+    close_state(state)
+end
+
+tests.update_all_key_invokes_action = function()
+    local ui = require('packui.ui')
+    local actions = make_actions()
+    local state = ui.open({ source = make_source({ make_plugin('alpha.nvim') }), actions = actions })
+
+    vim.api.nvim_set_current_win(state.wins.main_win)
+    vim.api.nvim_feedkeys('U', 'x', false)
+    vim.wait(50)
+
+    assert_equals(1, actions.calls.update_all, 'U invokes update_all action')
+
+    close_state(state)
+end
+
+tests.delete_key_invokes_action_for_selected_plugin = function()
+    local ui = require('packui.ui')
+    local actions = make_actions()
+    local plugins = { make_plugin('alpha.nvim'), make_plugin('beta.nvim') }
+    local state = ui.open({ source = make_source(plugins), actions = actions })
+
+    vim.api.nvim_set_current_win(state.wins.main_win)
+    vim.api.nvim_feedkeys('x', 'x', false)
+    vim.wait(50)
+
+    assert_equals(1, actions.calls.delete_one, 'x invokes delete_one action')
+    assert_equals('alpha.nvim', actions.calls.last_deleted, 'x deletes the selected plugin')
+
+    close_state(state)
+end
+
+tests.navigation_stops_at_boundaries = function()
+    local ui = require('packui.ui')
+    local plugins = { make_plugin('alpha.nvim'), make_plugin('beta.nvim') }
+    local state = ui.open({ source = make_source(plugins), actions = make_actions() })
+
+    vim.api.nvim_set_current_win(state.wins.main_win)
+
+    local first_item = state.line_to_item[state.selected_line]
+    assert_truthy(first_item and first_item.name == 'alpha.nvim', 'starts on first plugin')
+
+    vim.api.nvim_feedkeys('k', 'x', false)
+    local after_k = state.selected_name
+    assert_equals('alpha.nvim', after_k, 'k from first item stays on first item')
+
+    vim.api.nvim_feedkeys('j', 'x', false)
+    local after_j = state.selected_name
+    assert_equals('beta.nvim', after_j, 'j moves to second item')
+
+    vim.api.nvim_feedkeys('j', 'x', false)
+    local after_j2 = state.selected_name
+    assert_equals('beta.nvim', after_j2, 'j from last item stays on last item')
+
+    close_state(state)
+end
+
+tests.render_does_not_mutate_state_directly = function()
+    local ui = require('packui.ui')
+    local state = ui.open({ source = make_source({ make_plugin('alpha.nvim') }), actions = make_actions() })
+
+    local name_before = state.selected_name
+    local render = require('packui.ui.render')
+    local snapshot = render.build_snapshot(state)
+
+    assert_equals(name_before, state.selected_name, 'build_snapshot does not change selected_name')
+    assert_truthy(snapshot.selected_line, 'snapshot still computes selected_line')
 
     close_state(state)
 end

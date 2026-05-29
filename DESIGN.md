@@ -20,8 +20,8 @@ The runtime flow is:
 3. `ui/controller.lua` creates the window and initial state.
 4. `source/init.lua` returns plugin items from `vim.pack.get()` or the lock file fallback.
 5. `ui/state.lua` stores those items and tracks the selected plugin by name.
-6. `ui/render.lua` converts state into buffer lines and highlight metadata.
-7. `ui/controller.lua` applies that render output to the window.
+6. `ui/render.lua` converts state into buffer lines and highlight metadata (pure, no state mutation).
+7. `ui/controller.lua` syncs the render output back into state via `sync_render_state`, then applies highlights and cursor to the window.
 
 The important rule is: selection is stored as `selected_name`, not `selected_line`.
 
@@ -60,14 +60,15 @@ It answers:
 
 ### `lua/packui/ui/render.lua`
 
-This is the pure rendering layer.
+This is the pure rendering layer. It has zero imports from `state.lua` and performs no state mutations.
 
-It should be readable without mentally simulating Neovim callbacks. Given a state table, it returns:
+Given a state table, it returns:
 
 - lines
 - row highlight metadata
 - line-to-plugin mapping
 - plugin navigation order
+- selected line number (computed via `compute_selected_line`, which does NOT modify state)
 
 When behavior looks wrong on screen, inspect this file first.
 

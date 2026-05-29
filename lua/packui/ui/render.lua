@@ -1,5 +1,3 @@
-local state_model = require('packui.ui.state')
-
 local M = {}
 
 local NAME_WIDTH = 36
@@ -145,6 +143,19 @@ local function add_detail_lines(snapshot, detail_lines, highlight_group)
     end
 end
 
+function M.compute_selected_line(selected_name, selectable_lines, line_to_item)
+    if selected_name then
+        for _, line in ipairs(selectable_lines) do
+            local item = line_to_item[line]
+            if item and item.name == selected_name then
+                return line
+            end
+        end
+    end
+
+    return selectable_lines[1]
+end
+
 function M.build_snapshot(state)
     local snapshot = {
         lines = {},
@@ -200,7 +211,7 @@ function M.build_snapshot(state)
         end
     end
 
-    snapshot.selected_line = state_model.ensure_selected_line(state, snapshot.selectable_lines, snapshot.line_to_item)
+    snapshot.selected_line = M.compute_selected_line(state.selected_name, snapshot.selectable_lines, snapshot.line_to_item)
     return snapshot
 end
 
