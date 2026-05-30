@@ -45,7 +45,7 @@ function M.set_items(state, items)
         state.selected_name = nil
     end
 
-    if not state.selected_name and state.items[1] then
+    if not state.selected_name and not state.selected_line and state.items[1] then
         state.selected_name = state.items[1].name
     end
 
@@ -103,30 +103,6 @@ function M.sync_render_state(state, snapshot)
     else
         state.selected_name = nil
     end
-end
-
-function M.move_selection(state, delta)
-    if #state.plugin_order == 0 then
-        return false
-    end
-
-    local current_index = 1
-    if state.selected_name then
-        for index, name in ipairs(state.plugin_order) do
-            if name == state.selected_name then
-                current_index = index
-                break
-            end
-        end
-    end
-
-    local next_index = math.max(1, math.min(#state.plugin_order, current_index + delta))
-    if next_index == current_index then
-        return false
-    end
-
-    state.selected_name = state.plugin_order[next_index]
-    return true
 end
 
 return M

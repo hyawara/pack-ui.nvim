@@ -2,18 +2,23 @@ local Popup = require('nui.popup')
 
 local M = {}
 
+local OPAQUE_FALLBACK_BG = '#111111'
+local HL_NS = vim.api.nvim_create_namespace('packui.win')
+
 local HIGHLIGHTS = {
-    PackUINormal = { link = 'NormalFloat' },
     PackUIBorder = { link = 'FloatBorder' },
     PackUITitle = { link = 'Title' },
     PackUIKeyHint = { link = 'Comment' },
     PackUIUpdating = { link = 'DiagnosticInfo' },
     PackUIUpdatedHeader = { link = 'DiffAdd' },
+    PackUIUpdatedSeparator = { link = 'WinSeparator' },
+    PackUIInactiveHeader = { link = 'DiagnosticWarn' },
+    PackUIInactiveRow = { link = 'Comment' },
     PackUIAllPluginsHeader = { link = 'Title' },
     PackUIColumnHeader = { link = 'Type' },
     PackUIRowName = { link = 'Identifier' },
-    PackUIRowActive = { link = 'String' },
-    PackUIRowInactive = { link = 'Comment' },
+    PackUIRowCommit = { link = 'Number' },
+    PackUIRowRepo = { link = 'Directory' },
     PackUIRowVersion = { link = 'Number' },
     PackUIDetail = { link = 'Comment' },
     PackUIUpdatedRow = { link = 'DiffAdd' },
@@ -21,11 +26,48 @@ local HIGHLIGHTS = {
     PackUISelected = { link = 'Visual' },
 }
 
-function M.setup_highlights()
-    for group, opts in pairs(HIGHLIGHTS) do
-        opts.default = true
-        vim.api.nvim_set_hl(0, group, opts)
+local function color_from(group, field)
+    local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = group, link = false })
+    if ok and type(hl) == 'table' and type(hl[field]) == 'number' then
+        return string.format('#%06x', hl[field])
     end
+    return nil
+end
+
+local function normal_float_highlight()
+    local bg = color_from('NormalFloat', 'bg') or color_from('Normal', 'bg') or OPAQUE_FALLBACK_BG
+    local fg = color_from('NormalFloat', 'fg') or color_from('Normal', 'fg')
+    local highlight = { bg = bg, ctermbg = 0, blend = 0 }
+    if fg then
+        highlight.fg = fg
+    end
+    return highlight
+end
+
+local function setup_highlights_in_namespace(ns)
+    vim.api.nvim_set_hl(ns, 'PackUINormal', normal_float_highlight())
+    for group, opts in pairs(HIGHLIGHTS) do
+        vim.api.nvim_set_hl(ns, group, vim.tbl_extend('force', opts, { default = true }))
+    end
+end
+
+function M.setup_highlights()
+    setup_highlights_in_namespace(0)
+    setup_highlights_in_namespace(HL_NS)
+end
+
+local function main_winhl()
+    return table.concat({
+        'Normal:PackUINormal',
+        'NormalNC:PackUINormal',
+        'NormalFloat:PackUINormal',
+        'EndOfBuffer:PackUINormal',
+        'NonText:PackUINormal',
+        'SignColumn:PackUINormal',
+        'FloatBorder:PackUIBorder',
+        'FloatTitle:PackUITitle',
+        'CursorLine:PackUISelected',
+    }, ',')
 end
 
 function M.set_buf_lines(buf, lines)
@@ -96,15 +138,21 @@ function M.create_popup(opts)
             modifiable = false,
         },
         win_options = {
-            winhighlight = 'Normal:PackUINormal,FloatBorder:PackUIBorder,FloatTitle:PackUITitle',
+            winhighlight = main_winhl(),
             wrap = false,
-            cursorline = false,
+            cursorline = true,
+            winblend = 0,
             scrolloff = 0,
         },
         zindex = opts.zindex or 50,
     })
 
     popup:mount()
+    if popup.winid and vim.api.nvim_win_is_valid(popup.winid) then
+        vim.api.nvim_win_set_hl_ns(popup.winid, HL_NS)
+        vim.api.nvim_set_option_value('winblend', 0, { win = popup.winid })
+        vim.api.nvim_set_option_value('winhighlight', main_winhl(), { win = popup.winid })
+    end
     return popup
 end
 

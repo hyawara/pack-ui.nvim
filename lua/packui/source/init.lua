@@ -42,7 +42,7 @@ local function list_from_pack_get()
 
     local items = {}
     for _, item in ipairs(data) do
-        items[#items + 1] = model.from_pack_item(item, cache.update_count_cached(item.path))
+        items[#items + 1] = model.from_pack_item(item, cache.update_count_cached(item.path), cache.latest_commit_cached(item.path))
     end
 
     return sort_by_name(items)
@@ -75,6 +75,10 @@ end
 
 function M.prime_update_counts(items, on_updated, opts)
     return cache.prime_update_counts(items, on_updated, opts)
+end
+
+function M.prime_latest_commits(items, on_updated, opts)
+    return cache.prime_latest_commits(items, on_updated, opts)
 end
 
 function M.invalidate_update_count(path)

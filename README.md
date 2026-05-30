@@ -2,7 +2,7 @@
 
 一个面向 Neovim 0.12+ 的小型 `vim.pack` 管理器 UI。
 
-使用 `nui.nvim` 管理弹窗，使用 `plenary.nvim` 处理 Git 异步任务和 lock file 读取。首次渲染通过 `vim.pack.get(nil, { info = false })` 快速读取包数据，Git 更新计数异步采集并在刷新或包变更前一直缓存。
+使用 `nui.nvim` 管理弹窗，使用 `plenary.nvim` 处理 Git 异步任务和 lock file 读取。首次渲染通过 `vim.pack.get(nil, { info = false })` 快速读取包数据，Git 更新计数和最近提交说明异步采集并在刷新或包变更前一直缓存。
 
 本仓库刻意以"小型可读插件"的方式组织代码。目标不仅是能跑，还要展示一个 Neovim 插件如何把命令入口、数据加载、UI 状态、渲染和副作用分开。
 
@@ -36,7 +36,7 @@ vim.pack.add({
 | 按键 | 动作 |
 | --- | --- |
 | `o` | 打开选中插件的 GitHub 仓库 |
-| `j` / `k` | 上下导航插件列表 |
+| `j` / `k` / `gg` / `G` | 使用 Neovim 原生光标移动 |
 | `U` | 更新全部插件 |
 | `u` | 更新选中的插件 |
 | `x` | 删除选中的插件 |
@@ -47,7 +47,7 @@ vim.pack.add({
 ## 更新行为
 
 - `U` 更新全部插件，`u` 只更新选中的插件。
-- 已更新的插件会显示在独立的"Updated"区域，视觉强调更强，且自动展开最近的提交记录。
+- 已更新的插件会显示在独立的"Updated Plugins"区域，视觉强调更强，且自动展开最近的提交记录。
 - 更新或刷新进行中时，顶栏会显示紧凑的状态指示。
 
 ## 布局
@@ -55,8 +55,9 @@ vim.pack.add({
 PackUI 使用单个悬浮窗口 + 懒加载行内详情（类似 lazy.nvim）。
 
 - **顶部**: 分组按键提示和更新/刷新状态指示器
-- **Updated 区域**（可选）: 上次更新改动的插件，最近提交自动展开
-- **All Plugins 区域**: 完整插件列表，包含 `NAME STATUS VERSION` 三列
+- **Updated Plugins 区域**（可选）: 上次更新改动的插件，最近提交自动展开，包含 `NAME VERSION` 两列
+- **Inactive Plugins 区域**（可选）: 未启用插件，包含 `NAME VERSION` 两列
+- **Active Plugins 区域**: 当前启用插件，包含 `NAME VERSION COMMIT` 三列，`COMMIT` 显示最近一次提交说明
 - **`<CR>`** 展开/收起的详情在首次展开时构建，后续不再重复计算
 - **自适应宽度**: 窗口宽度跟随内容，不使用固定的百分比
 
@@ -70,7 +71,7 @@ make test
 
 - `plugin/packui.lua` 只定义 `:PackUI` 命令。
 - `lua/packui/init.lua` 连接 source、actions 和 UI。
-- `lua/packui/source/` 是数据层。它从 `vim.pack` 或 lock file 读取数据，把原始数据建模为稳定形状，并缓存异步更新计数。
+- `lua/packui/source/` 是数据层。它从 `vim.pack` 或 lock file 读取数据，把原始数据建模为稳定形状，并缓存异步更新计数和最近提交说明。
 - `lua/packui/git.lua` 用 `plenary.job` 包装 Git 异步任务，让调用方只关心“要什么数据”。
 - `lua/packui/ui/state.lua` 拥有 UI 状态，按插件名（而非屏幕行号）管理选中。
 - `lua/packui/ui/render.lua` 是纯渲染层。它把状态转为文本行、高亮和插件行导航目标。
@@ -114,7 +115,7 @@ lua/packui/win.lua              基于 nui.popup 的窗口辅助
 lua/packui/utils.lua            通知与 URL 打开
 lua/packui/source/init.lua      包列表 API
 lua/packui/source/model.lua     包数据规范化
-lua/packui/source/cache.lua     异步更新计数缓存
+lua/packui/source/cache.lua     异步更新计数和最近提交说明缓存
 tests/packui_ui_spec.lua        交互场景测试
 DESIGN.md                       架构维护说明
 ```

@@ -43,7 +43,7 @@ function M.github_url_from_repo(repo)
     return 'https://github.com/' .. repo
 end
 
-function M.from_pack_item(item, update_count)
+function M.from_pack_item(item, update_count, latest_commit)
     local spec = item.spec or {}
     local name = spec.name or vim.fn.fnamemodify(item.path or '', ':t')
     local src = spec.src or spec.url or ''
@@ -57,6 +57,7 @@ function M.from_pack_item(item, update_count)
         version = value_or_dash(spec.version),
         short_rev = M.short_rev(item.rev),
         update_count = value_or_dash(update_count),
+        latest_commit = value_or_dash(latest_commit),
         rev = item.rev,
         rev_to = item.rev_to,
         has_update = type(item.rev_to) == 'string' and item.rev_to ~= '' and item.rev_to ~= item.rev,
@@ -78,6 +79,7 @@ function M.from_lock_item(name, spec)
         version = value_or_dash(spec.version),
         short_rev = M.short_rev(spec.rev),
         update_count = '-',
+        latest_commit = '-',
         rev = spec.rev,
         rev_to = nil,
         has_update = false,

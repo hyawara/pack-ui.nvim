@@ -126,6 +126,7 @@ local function make_plugin(name)
         active = true,
         version = 'main',
         short_rev = 'abcdef12',
+        latest_commit = 'Initial commit message',
         update_count = '0',
         repo = 'owner/' .. name,
         github_url = 'https://github.com/owner/' .. name,
@@ -140,6 +141,9 @@ local function make_source(plugins)
             return plugins
         end,
         prime_update_counts = function(_, _, _)
+            return false
+        end,
+        prime_latest_commits = function(_, _, _)
             return false
         end,
         invalidate_update_count = function() end,
@@ -207,6 +211,10 @@ local function close_state(state)
     end
 end
 
+local function cursor_line(win)
+    return vim.api.nvim_win_get_cursor(win)[1]
+end
+
 local tests = {}
 
 tests.opens_single_buffer_ui = function()
@@ -217,6 +225,18 @@ tests.opens_single_buffer_ui = function()
     -- Single main window only
     assert_truthy(vim.api.nvim_win_is_valid(state.wins.main_win), 'main window is valid')
     assert_truthy(state.wins.main_buf, 'main buffer exists')
+    assert_equals(true, vim.api.nvim_get_option_value('cursorline', { win = state.wins.main_win }), 'native cursorline is enabled')
+    assert_equals(0, vim.api.nvim_get_option_value('winblend', { win = state.wins.main_win }), 'popup is not blended')
+    local packui_normal = vim.api.nvim_get_hl(0, { name = 'PackUINormal', link = false })
+    assert_truthy(type(packui_normal.bg) == 'number', 'PackUINormal has concrete background')
+    assert_equals(0, packui_normal.blend, 'PackUINormal does not blend')
+    local winhighlight = vim.api.nvim_get_option_value('winhighlight', { win = state.wins.main_win })
+    assert_contains(winhighlight, 'Normal:PackUINormal', 'normal background uses PackUINormal')
+    assert_contains(winhighlight, 'NormalNC:PackUINormal', 'inactive floating background uses PackUINormal')
+    assert_contains(winhighlight, 'NormalFloat:PackUINormal', 'floating background uses PackUINormal')
+    assert_contains(winhighlight, 'EndOfBuffer:PackUINormal', 'empty popup cells use PackUINormal')
+    assert_contains(winhighlight, 'NonText:PackUINormal', 'non-text cells use PackUINormal')
+    assert_contains(winhighlight, 'SignColumn:PackUINormal', 'sign column uses PackUINormal')
 
     local buf_text = text(state.wins.main_buf)
 
@@ -231,9 +251,12 @@ tests.opens_single_buffer_ui = function()
 
     -- Column headers present
     assert_contains(buf_text, 'NAME', 'has NAME column')
-    assert_contains(buf_text, 'STATUS', 'has STATUS column')
     assert_contains(buf_text, 'VERSION', 'has VERSION column')
-    assert_contains(buf_text, 'All Plugins', 'has All Plugins section')
+    assert_contains(buf_text, 'COMMIT', 'has COMMIT column')
+    assert_contains(buf_text, 'Initial commit message', 'active row shows latest commit message')
+    assert_not_contains(buf_text, 'REV', 'does not show REV column')
+    assert_not_contains(buf_text, 'STATUS', 'does not show STATUS column')
+    assert_contains(buf_text, 'Active Plugins', 'has Active Plugins section')
 
     -- No eager detail pane
 
@@ -278,7 +301,7 @@ tests.handles_empty_plugin_list = function()
 
     local buf_text = text(state.wins.main_buf)
     assert_contains(buf_text, 'Update (u)', 'update hint renders for empty list')
-    assert_contains(buf_text, 'All Plugins', 'All Plugins section header for empty list')
+    assert_contains(buf_text, 'Active Plugins', 'Active Plugins section header for empty list')
     assert_contains(buf_text, 'NAME', 'column header for empty list')
 
     close_state(state)
@@ -299,13 +322,13 @@ tests.updated_section_deduplicates_plugin_rows = function()
     vim.api.nvim_feedkeys('u', 'x', false)
 
     local ok = vim.wait(100, function()
-        return text(state.wins.main_buf):find('📦 Updated', 1, true) ~= nil
+        return text(state.wins.main_buf):find('📦 Updated Plugins', 1, true) ~= nil
     end)
     assert_truthy(ok, 'update callback renders Updated section')
 
     local buf_text = text(state.wins.main_buf)
-    assert_contains(buf_text, '📦 Updated', 'updated section appears after update')
-    assert_contains(buf_text, 'All Plugins', 'all plugins section remains visible')
+    assert_contains(buf_text, '📦 Updated Plugins', 'updated section appears after update')
+    assert_contains(buf_text, 'Active Plugins', 'active plugins section remains visible')
     assert_truthy(count_occurrences(buf_text, 'alpha.nvim') >= 1, 'updated plugin is present after update')
 
     close_state(state)
@@ -358,23 +381,29 @@ tests.key_hints_match_real_keymaps = function()
     close_state(state)
 end
 
-tests.navigation_only_visits_plugin_rows = function()
+tests.navigation_moves_one_rendered_row_at_a_time = function()
     local ui = require('packui.ui')
     local plugins = { make_plugin('alpha.nvim'), make_plugin('beta.nvim') }
     local state = ui.open({ source = make_source(plugins), actions = make_actions() })
 
     local first_item = state.line_to_item[state.selected_line]
     assert_truthy(first_item and first_item.name == 'alpha.nvim', 'selection starts on first plugin row')
+    local first_plugin_line = state.selected_line
 
     vim.api.nvim_set_current_win(state.wins.main_win)
+    vim.api.nvim_win_set_cursor(state.wins.main_win, { first_plugin_line, 0 })
     vim.api.nvim_feedkeys('k', 'x', false)
 
-    local still_first_item = state.line_to_item[state.selected_line]
-    assert_truthy(still_first_item and still_first_item.name == 'alpha.nvim', 'moving up does not land on hint or header rows')
+    assert_equals(first_plugin_line - 1, cursor_line(state.wins.main_win), 'native k moves one rendered row up')
+    assert_truthy(state.line_to_item[cursor_line(state.wins.main_win)] == nil, 'current cursor line is not a plugin row')
 
     vim.api.nvim_feedkeys('j', 'x', false)
-    local second_item = state.line_to_item[state.selected_line]
-    assert_truthy(second_item and second_item.name == 'beta.nvim', 'moving down lands on next plugin row')
+    local second_item = state.line_to_item[cursor_line(state.wins.main_win)]
+    assert_truthy(second_item and second_item.name == 'alpha.nvim', 'moving down returns to first plugin row')
+
+    vim.api.nvim_feedkeys('j', 'x', false)
+    local third_item = state.line_to_item[cursor_line(state.wins.main_win)]
+    assert_truthy(third_item and third_item.name == 'beta.nvim', 'second j lands on next plugin row')
 
     close_state(state)
 end
@@ -430,20 +459,14 @@ tests.navigation_stops_at_boundaries = function()
 
     vim.api.nvim_set_current_win(state.wins.main_win)
 
-    local first_item = state.line_to_item[state.selected_line]
-    assert_truthy(first_item and first_item.name == 'alpha.nvim', 'starts on first plugin')
-
+    vim.api.nvim_win_set_cursor(state.wins.main_win, { 1, 0 })
     vim.api.nvim_feedkeys('k', 'x', false)
-    local after_k = state.selected_name
-    assert_equals('alpha.nvim', after_k, 'k from first item stays on first item')
+    assert_equals(1, cursor_line(state.wins.main_win), 'native k stays on the first rendered line')
 
+    local last_line = #state.selectable_lines
+    vim.api.nvim_win_set_cursor(state.wins.main_win, { last_line, 0 })
     vim.api.nvim_feedkeys('j', 'x', false)
-    local after_j = state.selected_name
-    assert_equals('beta.nvim', after_j, 'j moves to second item')
-
-    vim.api.nvim_feedkeys('j', 'x', false)
-    local after_j2 = state.selected_name
-    assert_equals('beta.nvim', after_j2, 'j from last item stays on last item')
+    assert_equals(last_line, cursor_line(state.wins.main_win), 'native j stays on the last rendered line')
 
     close_state(state)
 end
@@ -460,6 +483,332 @@ tests.render_does_not_mutate_state_directly = function()
     assert_truthy(snapshot.selected_line, 'snapshot still computes selected_line')
 
     close_state(state)
+end
+
+tests.updated_detail_lines_show_only_recent_commits = function()
+    local render = require('packui.ui.render')
+    local lines = table.concat(render.build_detail_lines(make_plugin('alpha.nvim'), true), '\n')
+
+    assert_contains(lines, 'Recent commits:', 'updated details show recent commits heading')
+    assert_contains(lines, 'Loading...', 'updated details keep loading placeholder')
+    assert_not_contains(lines, 'Status:', 'updated details omit repeated status')
+    assert_not_contains(lines, 'Version:', 'updated details omit repeated version')
+    assert_not_contains(lines, 'Commit:', 'updated details omit repeated commit')
+    assert_not_contains(lines, 'Repo:', 'updated details omit repeated repo')
+end
+
+tests.inactive_plugins_render_in_separate_section = function()
+    local render = require('packui.ui.render')
+    local active = make_plugin('active.nvim')
+    local inactive = make_plugin('inactive.nvim')
+    inactive.active = false
+    inactive.version = 'v1.2.3'
+    inactive.short_rev = '1234abcd'
+    inactive.repo = 'owner/inactive.nvim'
+
+    local state = {
+        items = { active, inactive },
+        updated_items = {},
+        updated_names = {},
+        selected_name = 'active.nvim',
+        expanded = {},
+        detail_cache = {},
+        updating = false,
+        refreshing = false,
+    }
+
+    local snapshot = render.build_snapshot(state)
+    local text_lines = table.concat(snapshot.lines, '\n')
+    assert_contains(text_lines, '🚫 Inactive Plugins', 'inactive section is rendered')
+    assert_contains(text_lines, '🧩 Active Plugins', 'active section is rendered')
+    assert_not_contains(text_lines, 'REPO', 'inactive header omits REPO column')
+    assert_not_contains(text_lines, '1234abcd', 'inactive row omits short commit')
+    assert_not_contains(text_lines, 'owner/inactive.nvim', 'inactive row omits repo')
+
+    local inactive_header_line
+    for line_number, line in ipairs(snapshot.lines) do
+        if line:find('🚫 Inactive Plugins', 1, true) then
+            inactive_header_line = line_number + 1
+            break
+        end
+    end
+
+    assert_truthy(inactive_header_line, 'inactive column header line found')
+    assert_not_contains(snapshot.lines[inactive_header_line], 'STATUS', 'inactive section omits STATUS column')
+
+    local inactive_rows = 0
+    local inactive_line
+    for _, item in pairs(snapshot.line_to_item) do
+        if item.name == 'inactive.nvim' then
+            inactive_rows = inactive_rows + 1
+        end
+    end
+    assert_equals(1, inactive_rows, 'inactive plugin appears in one plugin row')
+
+    for line_number, item in pairs(snapshot.line_to_item) do
+        if item.name == 'inactive.nvim' then
+            inactive_line = line_number
+            break
+        end
+    end
+
+    for _, entry in ipairs(snapshot.row_highlights) do
+        if entry.line == inactive_line then
+            local hl = entry.highlights
+            assert_equals(2, #hl, 'inactive row has 2 highlight columns')
+            assert_equals(hl[1].col_end, hl[2].col_start, 'inactive name meets version')
+            assert_equals(#snapshot.lines[inactive_line], hl[2].col_end, 'inactive version reaches row end')
+            return
+        end
+    end
+
+    error('inactive row highlight entry not found')
+end
+
+tests.k_from_first_plugin_reaches_key_hints = function()
+    local ui = require('packui.ui')
+    local state = ui.open({ source = make_source({ make_plugin('alpha.nvim') }), actions = make_actions() })
+    local render = require('packui.ui.render')
+    local snapshot = render.build_snapshot(state)
+
+    local key_hint_line = 1
+    assert_contains(snapshot.lines[key_hint_line], 'Open repo (o)', 'line 1 is the key hint')
+
+    local first_plugin_line = state.selected_line
+    assert_truthy(first_plugin_line > key_hint_line, 'first plugin is below key hints')
+
+    vim.api.nvim_set_current_win(state.wins.main_win)
+    local presses = first_plugin_line - key_hint_line
+    for _ = 1, presses do
+        vim.api.nvim_feedkeys('k', 'x', false)
+    end
+
+    assert_equals(key_hint_line, cursor_line(state.wins.main_win), 'repeated k from first plugin reaches key hint line')
+
+    close_state(state)
+end
+
+tests.j_after_native_top_jump_starts_from_cursor = function()
+    local ui = require('packui.ui')
+    local state = ui.open({
+        source = make_source({ make_plugin('alpha.nvim'), make_plugin('beta.nvim') }),
+        actions = make_actions(),
+    })
+
+    vim.api.nvim_set_current_win(state.wins.main_win)
+    vim.api.nvim_win_set_cursor(state.wins.main_win, { 1, 0 })
+    vim.api.nvim_feedkeys('j', 'x', false)
+
+    assert_equals(2, cursor_line(state.wins.main_win), 'j after a native top jump starts from line 1')
+    assert_truthy(state.line_to_item[cursor_line(state.wins.main_win)] == nil, 'line 2 is not a plugin row')
+
+    close_state(state)
+end
+
+tests.k_after_native_bottom_jump_starts_from_cursor = function()
+    local ui = require('packui.ui')
+    local state = ui.open({
+        source = make_source({ make_plugin('alpha.nvim'), make_plugin('beta.nvim') }),
+        actions = make_actions(),
+    })
+
+    vim.api.nvim_set_current_win(state.wins.main_win)
+    local last_line = #state.selectable_lines
+    vim.api.nvim_win_set_cursor(state.wins.main_win, { last_line, 0 })
+    vim.api.nvim_feedkeys('k', 'x', false)
+
+    assert_equals(last_line - 1, cursor_line(state.wins.main_win), 'k after a native bottom jump starts from the last line')
+
+    close_state(state)
+end
+
+tests.plugin_actions_respect_native_cursor_on_non_plugin_line = function()
+    local ui = require('packui.ui')
+    local actions = make_actions()
+    local state = ui.open({ source = make_source({ make_plugin('alpha.nvim') }), actions = actions })
+
+    vim.api.nvim_set_current_win(state.wins.main_win)
+    vim.api.nvim_win_set_cursor(state.wins.main_win, { 1, 0 })
+    vim.api.nvim_feedkeys('o', 'x', false)
+
+    assert_equals(0, actions.calls.open_github, 'o on key hint line does not use stale plugin selection')
+    assert_equals(nil, state.selected_name, 'key hint line clears selected plugin')
+
+    close_state(state)
+end
+
+tests.non_plugin_selected_line_clamps_when_snapshot_shrinks = function()
+    local render = require('packui.ui.render')
+    local state = {
+        items = { make_plugin('alpha.nvim') },
+        updated_items = {},
+        updated_names = {},
+        selected_name = nil,
+        selected_line = 999,
+        expanded = {},
+        detail_cache = {},
+        updating = false,
+        refreshing = false,
+    }
+
+    local snapshot = render.build_snapshot(state)
+    assert_equals(#snapshot.lines, snapshot.selected_line, 'non-plugin selected_line clamps to last rendered line')
+end
+
+tests.snapshot_has_no_pinned_line_count = function()
+    local render = require('packui.ui.render')
+    local state = {
+        items = { make_plugin('alpha.nvim') },
+        updated_items = {},
+        updated_names = {},
+        selected_name = 'alpha.nvim',
+        expanded = {},
+        detail_cache = {},
+        updating = false,
+        refreshing = false,
+    }
+    local snapshot = render.build_snapshot(state)
+    assert_equals(nil, snapshot.pinned_line_count, 'snapshot must not contain pinned_line_count')
+end
+
+tests.all_lines_start_with_left_padding = function()
+    local render = require('packui.ui.render')
+    local state = {
+        items = { make_plugin('alpha.nvim') },
+        updated_items = {},
+        updated_names = {},
+        selected_name = 'alpha.nvim',
+        expanded = {},
+        detail_cache = {},
+        updating = false,
+        refreshing = false,
+    }
+    local snapshot = render.build_snapshot(state)
+    for i, line in ipairs(snapshot.lines) do
+        assert_truthy(
+            line:sub(1, 1) == ' ',
+            string.format('line %d should start with left padding space, got: %q', i, line:sub(1, 1))
+        )
+    end
+end
+
+tests.row_highlights_are_contiguous = function()
+    local render = require('packui.ui.render')
+    local state = {
+        items = { make_plugin('alpha.nvim') },
+        updated_items = {},
+        updated_names = {},
+        selected_name = 'alpha.nvim',
+        expanded = {},
+        detail_cache = {},
+        updating = false,
+        refreshing = false,
+    }
+    local snapshot = render.build_snapshot(state)
+    assert_truthy(#snapshot.row_highlights > 0, 'snapshot has row highlights')
+
+    for _, entry in ipairs(snapshot.row_highlights) do
+        local hl = entry.highlights
+        local line = snapshot.lines[entry.line]
+        assert_equals(3, #hl, 'active row has 3 highlight entries')
+        assert_equals(1, hl[1].col_start, 'name highlight starts after LEFT_PAD')
+        assert_equals(hl[1].col_end, hl[2].col_start, 'name highlight end meets version highlight start')
+        assert_equals(hl[2].col_end, hl[3].col_start, 'version highlight end meets commit highlight start')
+        assert_equals(#line, hl[3].col_end, 'commit highlight end reaches actual line byte length')
+    end
+end
+
+tests.updated_section_has_separator = function()
+    local render = require('packui.ui.render')
+    local plugin = make_plugin('alpha.nvim')
+    local state = {
+        items = { plugin },
+        updated_items = { plugin },
+        updated_names = { ['alpha.nvim'] = true },
+        selected_name = 'alpha.nvim',
+        expanded = {},
+        detail_cache = {},
+        updating = false,
+        refreshing = false,
+    }
+    local snapshot = render.build_snapshot(state)
+
+    local found_separator = false
+    for line_number, group in pairs(snapshot.highlight_map) do
+        if group == 'PackUIUpdatedSeparator' then
+            found_separator = true
+            local line = snapshot.lines[line_number]
+            assert_truthy(line:find('─', 1, true), 'separator line contains dash characters')
+            assert_truthy(line:sub(1, 1) == ' ', 'separator line has left padding')
+            break
+        end
+    end
+    assert_truthy(found_separator, 'Updated section has a PackUIUpdatedSeparator highlight')
+end
+
+tests.plugin_rows_have_uniform_display_width = function()
+    local render = require('packui.ui.render')
+    local short_version = {
+        name = 'short.nvim',
+        active = true,
+        version = '-',
+        short_rev = 'a1',
+        repo = 'o/short.nvim',
+        github_url = 'https://github.com/o/short.nvim',
+        src = 'https://github.com/o/short.nvim',
+        path = vim.fn.getcwd(),
+    }
+    local medium_version = {
+        name = 'medium.nvim',
+        active = true,
+        version = 'main',
+        short_rev = 'b2',
+        repo = 'o/medium.nvim',
+        github_url = 'https://github.com/o/medium.nvim',
+        src = 'https://github.com/o/medium.nvim',
+        path = vim.fn.getcwd(),
+    }
+    local long_version = {
+        name = 'long-version.nvim',
+        active = false,
+        version = 'v2.0.0-beta.1',
+        short_rev = 'c3',
+        repo = 'o/long-version.nvim',
+        github_url = 'https://github.com/o/long-version.nvim',
+        src = 'https://github.com/o/long-version.nvim',
+        path = vim.fn.getcwd(),
+    }
+
+    local state = {
+        items = { short_version, medium_version, long_version },
+        updated_items = { long_version },
+        updated_names = { ['long-version.nvim'] = true },
+        selected_name = 'short.nvim',
+        expanded = {},
+        detail_cache = {},
+        updating = false,
+        refreshing = false,
+    }
+    local snapshot = render.build_snapshot(state)
+
+    local row_widths_by_column_count = {}
+    for _, entry in ipairs(snapshot.row_highlights) do
+        local line = snapshot.lines[entry.line]
+        local column_count = #entry.highlights
+        row_widths_by_column_count[column_count] = row_widths_by_column_count[column_count] or {}
+        local row_widths = row_widths_by_column_count[column_count]
+        row_widths[#row_widths + 1] = vim.api.nvim_strwidth(line)
+    end
+
+    for column_count, row_widths in pairs(row_widths_by_column_count) do
+        for i = 2, #row_widths do
+            assert_equals(
+                row_widths[1],
+                row_widths[i],
+                string.format('row %d display width matches row 1 for %d-column rows (%d vs %d)', i, column_count, row_widths[1], row_widths[i])
+            )
+        end
+    end
 end
 
 for name, test in pairs(tests) do

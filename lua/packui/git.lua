@@ -35,4 +35,8 @@ function M.recent_commits(path, on_done)
     run_git({ 'log', '--oneline', '-5' }, path, on_done)
 end
 
+function M.latest_commit_subject(path, on_done)
+    run_git({ 'log', '-1', '--pretty=%s' }, path, on_done)
+end
+
 return M

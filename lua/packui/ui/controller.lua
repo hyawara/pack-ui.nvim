@@ -46,24 +46,7 @@ local function restore_cursor(state, snapshot)
         return
     end
 
-    vim.api.nvim_buf_add_highlight(state.wins.main_buf, NS, 'PackUISelected', state.selected_line - 1, 0, -1)
     vim.api.nvim_win_set_cursor(state.wins.main_win, { state.selected_line, 0 })
-
-    local win_height = vim.api.nvim_win_get_height(state.wins.main_win)
-    local pinned = snapshot.pinned_line_count or 0
-    local visible_top = math.max(0, state.selected_line - win_height + 1)
-
-    -- 选中项贴近底部时，避免滚动把顶部按键提示和状态行顶出视野。
-    if visible_top < pinned then
-        local target_top = math.max(1, state.selected_line - win_height + 1)
-        if target_top < pinned then
-            target_top = 1
-        end
-        pcall(vim.api.nvim_win_call, state.wins.main_win, function()
-            vim.cmd('normal! ' .. target_top .. 'Gzt')
-        end)
-        vim.api.nvim_win_set_cursor(state.wins.main_win, { state.selected_line, 0 })
-    end
 end
 
 local function start_update(state)
@@ -96,7 +79,31 @@ function M.render(state)
     restore_cursor(state, snapshot)
 end
 
+local function sync_selection_from_cursor(state)
+    if state.closed or not ui_win.is_open(state.wins) or #state.selectable_lines == 0 then
+        return
+    end
+
+    local ok, cursor = pcall(vim.api.nvim_win_get_cursor, state.wins.main_win)
+    if not ok or type(cursor) ~= 'table' then
+        return
+    end
+
+    local line = cursor[1]
+    if type(line) ~= 'number' then
+        return
+    end
+
+    local first_line = state.selectable_lines[1]
+    local last_line = state.selectable_lines[#state.selectable_lines]
+    state.selected_line = math.max(first_line, math.min(last_line, line))
+
+    local item = state.line_to_item[state.selected_line]
+    state.selected_name = item and item.name or nil
+end
+
 local function current_plugin(state)
+    sync_selection_from_cursor(state)
     local item = state_model.current_plugin(state)
     if item then
         return item
@@ -223,16 +230,35 @@ local function refresh(state, refresh_opts)
     end
     M.render(state)
 
-    local has_async_jobs = state.source.prime_update_counts(state.items, function()
+    local pending_async_groups = 0
+    local function on_async_group_done()
+        pending_async_groups = pending_async_groups - 1
+        if pending_async_groups > 0 then
+            return
+        end
+
         state.refreshing = false
         load_items(state, preserve_snapshot(state))
 
         if ui_win.is_open(state.wins) then
             M.render(state)
         end
-    end, { force = refresh_opts.force_counts == true })
+    end
 
-    if not has_async_jobs then
+    local has_update_jobs = state.source.prime_update_counts(state.items, on_async_group_done, { force = refresh_opts.force_counts == true })
+    if has_update_jobs then
+        pending_async_groups = pending_async_groups + 1
+    end
+
+    local has_commit_jobs = false
+    if type(state.source.prime_latest_commits) == 'function' then
+        has_commit_jobs = state.source.prime_latest_commits(state.items, on_async_group_done, { force = refresh_opts.force_counts == true })
+        if has_commit_jobs then
+            pending_async_groups = pending_async_groups + 1
+        end
+    end
+
+    if pending_async_groups == 0 then
         state.refreshing = false
         M.render(state)
     end
@@ -280,12 +306,6 @@ local function finish_update(state, updated_names, opts)
     })
 end
 
-local function navigate(state, delta)
-    if state_model.move_selection(state, delta) then
-        M.render(state)
-    end
-end
-
 local function map_keys(state)
     local buf = state.wins.main_buf
 
@@ -296,12 +316,6 @@ local function map_keys(state)
     map('q', function()
         close(state)
     end, 'Close PackUI')
-    map('j', function()
-        navigate(state, 1)
-    end, 'Next plugin')
-    map('k', function()
-        navigate(state, -1)
-    end, 'Previous plugin')
     map('o', function()
         local item = current_plugin(state)
         if item then
@@ -309,6 +323,7 @@ local function map_keys(state)
         end
     end, 'Open plugin repository')
     map('r', function()
+        sync_selection_from_cursor(state)
         refresh(state, { force_counts = true })
     end, 'Refresh list')
     map('U', function()
