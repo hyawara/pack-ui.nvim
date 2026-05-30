@@ -4,23 +4,27 @@ M.LOADING_LINE = 'Loading...'
 
 local NAME_WIDTH = 36
 local LEFT_PAD = ' '
+local COL_GAP = '  '
 local KEY_HINT_LINES = {
     ' Open repo (o)  Update (u)  Update all (U)  Refresh (r)  Details (<CR>)  Delete (x)  Close (q) ',
 }
 
-local function pad_display(value, width)
+local function pad_display(value, width, gap)
     local str = tostring(value or '')
     local current = vim.api.nvim_strwidth(str)
-    if current >= width then
-        return str
+    if current < width then
+        str = str .. string.rep(' ', width - current)
     end
-    return str .. string.rep(' ', width - current)
+    if gap then
+        return str .. COL_GAP
+    end
+    return str
 end
 
 local function updated_row_text(item, widths)
     local version = item.version or '-'
     local parts = {
-        name = pad_display(item.name or '', NAME_WIDTH),
+        name = pad_display(item.name or '', NAME_WIDTH, true),
         version = pad_display(version, widths.version),
     }
     return parts.name .. parts.version, parts
@@ -29,28 +33,28 @@ end
 local function active_row_text(item, widths)
     local version = item.version or '-'
     local parts = {
-        name = pad_display(item.name or '', NAME_WIDTH),
-        version = pad_display(version, widths.version),
+        name = pad_display(item.name or '', NAME_WIDTH, true),
+        version = pad_display(version, widths.version, true),
         commit = pad_display(item.latest_commit or '-', widths.commit),
     }
     return parts.name .. parts.version .. parts.commit, parts
 end
 
 local function updated_header_text(widths)
-    return pad_display('NAME', NAME_WIDTH) .. pad_display('VERSION', widths.version)
+    return pad_display('NAME', NAME_WIDTH, true) .. pad_display('VERSION', widths.version)
 end
 
 local function active_header_text(widths)
-    return pad_display('NAME', NAME_WIDTH) .. pad_display('VERSION', widths.version) .. pad_display('COMMIT', widths.commit)
+    return pad_display('NAME', NAME_WIDTH, true) .. pad_display('VERSION', widths.version, true) .. pad_display('COMMIT', widths.commit)
 end
 
 local function inactive_header_text(widths)
-    return pad_display('NAME', NAME_WIDTH) .. pad_display('VERSION', widths.version)
+    return pad_display('NAME', NAME_WIDTH, true) .. pad_display('VERSION', widths.version)
 end
 
 local function inactive_row_text(item, widths)
     local parts = {
-        name = pad_display(item.name or '', NAME_WIDTH),
+        name = pad_display(item.name or '', NAME_WIDTH, true),
         version = pad_display(item.version or '-', widths.version),
     }
     return parts.name .. parts.version, parts
