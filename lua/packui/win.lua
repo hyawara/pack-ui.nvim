@@ -92,11 +92,10 @@ end
 function M.calc_layout(content_width)
     local columns = math.max(vim.o.columns, 40)
     local lines = math.max(vim.o.lines - vim.o.cmdheight, 12)
-    local desired = math.max(content_width or 84, 84)
-    local width = clamp(desired, 84, columns - 4)
-    local height = clamp(math.floor(lines * 0.82), 14, lines - 2)
-    local row = math.max(0, math.floor((lines - height) / 2) - 1)
-    local col = math.max(3, math.floor((columns - width) / 4))
+    local width = columns
+    local height = lines
+    local row = 0
+    local col = 0
 
     return {
         main = { row = row, col = col, width = width, height = height },

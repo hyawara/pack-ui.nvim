@@ -73,7 +73,6 @@ function M.render(state)
 
     local snapshot = render.build_snapshot(state)
     ui_win.set_buf_lines(state.wins.main_buf, snapshot.lines)
-    ui_win.resize_win_to_content(state.wins.main_win, render.compute_content_width(snapshot.lines))
     state_model.sync_render_state(state, snapshot)
     apply_highlights(state.wins.main_buf, snapshot.highlight_map, snapshot.row_highlights)
     restore_cursor(state, snapshot)
